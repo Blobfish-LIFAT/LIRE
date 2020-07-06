@@ -1,3 +1,5 @@
+import torch
+
 class Config:
     __instance = None
     device_ = None
@@ -5,6 +7,14 @@ class Config:
     @staticmethod
     def device():
         return Config.getInstance().device_
+
+    @staticmethod
+    def set_device_gpu():
+        Config.getInstance().device_ = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    @staticmethod
+    def set_device_cpu():
+        Config.getInstance().device_ = torch.device("cpu")
 
     @staticmethod
     def getInstance():

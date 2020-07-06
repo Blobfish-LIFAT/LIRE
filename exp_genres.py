@@ -8,9 +8,8 @@ import loss
 
 # Gestion du mode pytorch CPU/GPU
 from config import Config
-Config.getInstance().device_ = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-#Config.getInstance().device_ = torch.device("cpu")
-device = Config.getInstance().device_
+Config.set_device_gpu()
+device = Config.device()
 print("Running tensor computations on", device)
 
 # Load data and run black box
