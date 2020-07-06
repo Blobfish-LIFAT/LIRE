@@ -4,7 +4,7 @@ import torch.nn as nn
 global device_
 
 class LocalLossMAE_v3(nn.Module):
-    def __init__(self, target_orr, target_film_id, map_fn=id):
+    def __init__(self, target_orr, map_fn=id):
         super(LocalLossMAE_v3, self).__init__()
         self.ref_user = target_orr
         self.map_fn = map_fn

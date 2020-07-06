@@ -1,15 +1,16 @@
 import torch
 import numpy as np
 from sklearn import linear_model
-from utility import load_data_small, perturbations
 import seaborn as sns
 import matplotlib.pyplot as plt
+
 from models import LinearRecommender, get_OOS_pred_inner, train
+from utility import load_data_small, perturbations
 import loss
 
 # Gestion du mode pytorch CPU/GPU
 from config import Config
-
+Config.set_device_gpu()
 device = Config.getInstance().device_
 print("Running tensor computations on", device)
 
@@ -85,12 +86,10 @@ errors = []
 for movie_id in range(50, 150):
     model = LinearRecommender(n_dim_int)
 
-
     def map_fn(entree):
         return pert_orr
+    l = loss.LocalLossMAE_v3(base_user, map_fn=map_fn)
 
-
-    l = loss.LocalLossMAE_v3(base_user, movie_id, map_fn=map_fn)
     train(model, pert_int, y_orr[:, movie_id], l, 100, verbose=False)
 
     gx_ = model(base_user_int).item()

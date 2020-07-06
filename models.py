@@ -33,7 +33,7 @@ class LinearRecommender(nn.Module):
 
 # Training loop
 # target_user_vec -> user targeted for explaination (as a 'real' ratings vector)
-def train(model, X, y, loss_criterion, epochs, alpha=0.001, learning_rate=0.1, verbose=True):
+def train(model, X, y, loss_criterion, epochs, learning_rate=0.1, verbose=True):
     optimizer = optim.Adagrad(model.parameters(), lr=learning_rate)
 
     for epoch in range(epochs):  # loop over the dataset multiple times
@@ -99,9 +99,6 @@ def get_OOS_pred_inner(user, s, v, films_nb, epochs=20):
         loss.backward()
         opt.step()
         opt.zero_grad()
-        # unew.data -= 0.0007 * unew.grad.data
-        # unew.grad.data.zero_()
-        # if epoch == 0 or epoch % 2 == 0 : print("  ", loss.item())
 
     # Warning: nb_films-1 as we work in a space where a movie was removed to be explained
     return ((unew @ s @ v + umean.expand(films_nb - 1, user.size()[0]).transpose(0, 1)) * (user == 0.) + user).detach()
