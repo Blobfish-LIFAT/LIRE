@@ -33,7 +33,7 @@ class LinearRecommender(nn.Module):
 
 # Training loop
 # target_user_vec -> user targeted for explaination (as a 'real' ratings vector)
-def train(model, X, y, loss_criterion, epochs, learning_rate=0.1, verbose=True):
+def train(model, X, y, loss_criterion, epochs, learning_rate=0.1, verbose=True, clamp=False):
     optimizer = optim.Adagrad(model.parameters(), lr=learning_rate)
 
     for epoch in range(epochs):  # loop over the dataset multiple times
@@ -49,7 +49,8 @@ def train(model, X, y, loss_criterion, epochs, learning_rate=0.1, verbose=True):
         optimizer.step()
 
         # Clamp wheights to 0 no less
-        # model.omega.data[model.omega < 0.] = 0.
+        if clamp:
+            model.omega.data[model.omega < 0.] = 0.
 
         # print statistics
         if verbose:

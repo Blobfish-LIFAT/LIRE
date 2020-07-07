@@ -7,6 +7,7 @@ from scipy.sparse import coo_matrix
 
 from config import Config
 
+
 # Make Perturbations
 def perturbations(ux, fake_users, std=2, proba=0.1):
     nb_dim = ux.size()[0]
@@ -16,7 +17,7 @@ def perturbations(ux, fake_users, std=2, proba=0.1):
     rd_mask = torch.zeros(fake_users, nb_dim, device=Config.device()).uniform_() > (1. - proba)
     perturbation = perturbation * rd_mask * (users != 0.)
     users = users + perturbation
-    users[users > 5.] = 5.
+    #users[users > 5.] = 5. #seems to introduce detrimental bias in the training set
     return torch.abs(users)
 
 
@@ -45,3 +46,12 @@ def load_data_small():
     np.copyto(all_user_predicted_ratings, all_actual_ratings, where=cond)
 
     return U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb
+
+
+if __name__ == '__main__':
+    test = torch.tensor([0,1,2,3,4.5,5,2,1])
+    p_old = perturbations_old(test, 10)
+    p = perturbations(test, 10)
+
+    print(p_old)
+    print(p)

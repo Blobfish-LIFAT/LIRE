@@ -39,8 +39,8 @@ for user_id in range(10, 20):
 
     for movie_id in range(75, 100):
         model = LinearRecommender(18)
-        l = loss.LocalLossMAE_v3(base_user, map_fn=lambda _: pert_orr)
-        train(model, pert_int, y_orr[:, movie_id], l, 75, verbose=False)
+        l = loss.LocalLossMAE_v3(base_user, map_fn=lambda _: pert_orr, alpha=0.001)
+        train(model, pert_int, y_orr[:, movie_id], l, 100, verbose=False, clamp=True)
 
         gx_ = model(base_user_int).item()
         fx = y_orr[:, movie_id].mean().item()
