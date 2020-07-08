@@ -24,7 +24,7 @@ for n_feats in [5, 10, 15, 20]:
             configs.append((n_feats, sigma, pert_std))
 
 with open("lasso_exp.csv", mode="w") as file:
-    file.write("type;n_feats;sigma;pert_std;fid_mean;fid_std")
+    file.write("type;n_feats;sigma;pert_std;fid_mean;fid_std\n")
 
     for test_conf in configs:
         # Load data and run black box
@@ -108,4 +108,4 @@ with open("lasso_exp.csv", mode="w") as file:
         #plt.show()
         print(output)
 
-        file.write(output)
+        file.write(output + '\n')
