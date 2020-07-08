@@ -15,8 +15,7 @@ Config.set_device_gpu()
 device = Config.getInstance().device_
 print("Running tensor computations on", device)
 
-# Load data and run black box
-U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data_small()
+
 
 configs = []
 for n_feats in [5, 10, 15, 20]:
@@ -28,6 +27,9 @@ with open("lasso_exp.csv", mode="w") as file:
     file.write("type;n_feats;sigma;pert_std;fid_mean;fid_std")
 
     for test_conf in configs:
+        # Load data and run black box
+        U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data_small()
+
         # -------------
         #movie_id = 69  # 55 => pb with Lars model, 69 seems to work just fine
         n_users = 25
