@@ -11,7 +11,7 @@ import loss
 # Gestion du mode pytorch CPU/GPU
 from config import Config
 
-Config.set_device_gpu()
+Config.set_device_cpu()
 device = Config.getInstance().device_
 print("Running tensor computations on", device)
 
