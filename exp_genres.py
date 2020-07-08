@@ -15,6 +15,12 @@ Config.set_device_gpu()
 device = Config.device()
 print("Running tensor computations on", device)
 
+configs = []
+for n_feats in [5, 10, 15, 20]:
+    for sigma in [0.1, 0.2, 0.3, 0.4, 0.5]:
+        for pert_std in [1, 2, 3, 4, 5]:
+            configs.append((n_feats, sigma, pert_std))
+
 # Load data and run black box
 U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data_small()
 int_space = GenresSpace(movies_df, ratings_df, all_actual_ratings)
