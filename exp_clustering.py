@@ -62,17 +62,55 @@ def plot_dendrogram(model, **kwargs):
 
 from scipy.spatial.distance import pdist, squareform
 from sklearn.cluster import AgglomerativeClustering
-from scipy.cluster.hierarchy import dendrogram
+from scipy.cluster.hierarchy import dendrogram, linkage
 
-movie_id = 128
-c_dist = pdist(np.nan_to_num(all_actual_ratings), metric='cosine')
-dist = pdist(np.nan_to_num(all_actual_ratings)[:, [movie_id]])
+movie_id = 350
 
-dist += c_dist
-del c_dist
+# build interp space with lasso
+other_movies = list(range(all_actual_ratings.shape[1]))
+other_movies.remove(movie_id)
+LX = np.nan_to_num(all_actual_ratings[:, other_movies])
+Ly = np.nan_to_num(all_user_predicted_ratings[:, movie_id])
 
-clustering = AgglomerativeClustering(affinity='precomputed', linkage='average', distance_threshold=0, n_clusters=None)
-clustering.fit(squareform(dist))
+# LARS learning
+# complexity of the model is defined by N_FEATS: 30 features + intercept
 
-plot_dendrogram(clustering, truncate_mode='level', p=3)
+reg = linear_model.Lars(fit_intercept=True, n_nonzero_coefs=15)
+reg.fit(LX, Ly)
+
+# select indexes of non 0 coefficients to determine the reduced space
+indexes = np.argwhere(reg.coef_ != 0).T.flatten()
+
+# build distance matrix for clustering
+dist = pdist(np.nan_to_num(all_actual_ratings)[:, list(indexes)])
+print(dist)
+
+#c_dist = pdist(np.nan_to_num(all_actual_ratings), metric='cosine')
+#dist = pdist(np.nan_to_num(all_actual_ratings)[:, [movie_id]])
+
+#dist += (c_dist/2.5)
+#del c_dist
+
+linked = linkage(dist, 'ward')
+
+plt.figure(figsize=(20, 10))
+dendrogram(linked,
+            orientation='top',
+            distance_sort='descending',
+            show_leaf_counts=True,
+           truncate_mode='level',
+           p=10)
 plt.show()
+
+#clustering = AgglomerativeClustering(affinity='precomputed', linkage='average', distance_threshold=0, n_clusters=None)
+#clustering.fit(squareform(dist))
+
+#print(squareform(dist))
+
+#plot_dendrogram(clustering, truncate_mode='level', p=3)
+#plt.show()
+
+
+# -> lasso pour le film
+# -> id cluster de l'user
+#

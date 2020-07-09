@@ -61,4 +61,5 @@ with open("genres_exp.csv", mode="w") as file:
         errors = np.array(errors)
         output = ";".join(["genre", "18", str(test_conf[0]), str(test_conf[1]), str(test_conf[2]), str(np.nanmean(errors)),
                            str(np.nanstd(errors))])
+        file.write(output + "\n")
         print(output)
