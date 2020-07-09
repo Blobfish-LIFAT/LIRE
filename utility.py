@@ -21,6 +21,16 @@ def perturbations(ux, fake_users, std=2, proba=0.1):
     return torch.abs(users)
 
 
+# Make Perturbations
+def perturbations_uniform(ux, fake_users, proba=0.1):
+    nb_dim = ux.size()[0]
+    users = ux.expand(fake_users, nb_dim)
+
+    rd_mask = torch.zeros(fake_users, nb_dim, device=Config.device()).uniform_() > (proba)
+
+    return rd_mask * users
+
+
 def load_data_small():
     ratings_df = pd.read_csv("./ml-latest-small/ratings.csv")
     movies_df = pd.read_csv("./ml-latest-small/movies.csv")
@@ -47,11 +57,6 @@ def load_data_small():
 
     return U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb
 
-
 if __name__ == '__main__':
-    test = torch.tensor([0,1,2,3,4.5,5,2,1])
-    p_old = perturbations_old(test, 10)
-    p = perturbations(test, 10)
-
-    print(p_old)
-    print(p)
+    user = torch.tensor([0,0,1,2,3,4,5,6,7,8,9.])
+    print(perturbations_uniform(user, 10))

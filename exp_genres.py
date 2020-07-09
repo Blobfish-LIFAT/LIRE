@@ -16,46 +16,49 @@ device = Config.device()
 print("Running tensor computations on", device)
 
 configs = []
-for n_feats in [5, 10, 15, 20]:
-    for sigma in [0.1, 0.2, 0.3, 0.4, 0.5]:
-        for pert_std in [1, 2, 3, 4, 5]:
-            configs.append((n_feats, sigma, pert_std))
+for kern in [0.1, 0.2, 0.3, 0.4, 0.5]:
+    for pert_std in [1, 2, 3, 4, 5]:
+        for pert_proba in [0.1, 0.2, 0.3, 0.4]:
+            configs.append((kern, pert_std, pert_proba))
 
-# Load data and run black box
-U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data_small()
-int_space = GenresSpace(movies_df, ratings_df, all_actual_ratings)
+with open("genres_exp.csv", mode="w") as file:
+    file.write("type;n_feats;sigma;pert_std;pert_proba;fid_mean;fid_std\n")
 
-errors = []
-s = torch.tensor(sigma, device=device, dtype=torch.float32)
-v = torch.tensor(Vt, device=device, dtype=torch.float32)
+    for test_conf in configs:
+        # Load data and run black box
+        U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data_small()
+        int_space = GenresSpace(movies_df, ratings_df, all_actual_ratings)
 
-for user_id in range(10, 20):
-    base_user = torch.tensor(np.nan_to_num(all_actual_ratings[user_id]), device=device, dtype=torch.float32)
-    base_user_int = int_space.to_int_space(base_user)
+        errors = []
+        s = torch.tensor(sigma, device=device, dtype=torch.float32)
+        v = torch.tensor(Vt, device=device, dtype=torch.float32)
 
-    pert_int = perturbations(base_user_int, 25)
-    pert_orr = torch.zeros(25, films_nb, device=device)
+        for user_id in range(10, 30):
+            base_user = torch.tensor(np.nan_to_num(all_actual_ratings[user_id]), device=device, dtype=torch.float32)
+            base_user_int = int_space.to_int_space(base_user)
 
-    i = 0
-    for pu in pert_int:
-        pert_orr[i] = int_space.to_orr_space(pert_int[i], base_user_int, base_user)
-        i += 1
+            pert_int = perturbations(base_user_int, 25, std=test_conf[1], proba=test_conf[2])
+            pert_orr = torch.zeros(25, films_nb, device=device)
 
-    y_orr = get_OOS_pred(pert_orr, s, v, films_nb)
+            i = 0
+            for pu in pert_int:
+                pert_orr[i] = int_space.to_orr_space(pert_int[i], base_user_int, base_user)
+                i += 1
 
-    for movie_id in range(75, 100):
-        model = LinearRecommender(18)
-        l = loss.LocalLossMAE_v3(base_user, map_fn=lambda _: pert_orr, alpha=0.001)
-        train(model, pert_int, y_orr[:, movie_id], l, 100, verbose=False, clamp=True)
+            y_orr = get_OOS_pred(pert_orr, s, v, films_nb)
 
-        gx_ = model(base_user_int).item()
-        fx = y_orr[:, movie_id].mean().item()
-        # print(gx_, fx, all_user_predicted_ratings[user_id, movie_id])
-        errors.append(abs(gx_ - fx))
-        # print(abs(gx_ - fx))
+            for movie_id in range(75, 100):
+                model = LinearRecommender(18)
+                l = loss.LocalLossMAE_v3(base_user, map_fn=lambda _: pert_orr, alpha=0.001, sigma=test_conf[0])
+                train(model, pert_int, y_orr[:, movie_id], l, 100, verbose=False, clamp=True)
 
-errors = np.array(errors)
-print(errors.mean(), errors.std())
-sns.distplot(errors)
-plt.show()
-print("done")
+                gx_ = model(base_user_int).item()
+                fx = y_orr[:, movie_id].mean().item()
+                # print(gx_, fx, all_user_predicted_ratings[user_id, movie_id])
+                errors.append(abs(gx_ - fx))
+                # print(abs(gx_ - fx))
+
+        errors = np.array(errors)
+        output = ";".join(["genre", "18", str(test_conf[0]), str(test_conf[1]), str(test_conf[2]), str(np.nanmean(errors)),
+                           str(np.nanstd(errors))])
+        print(output)
