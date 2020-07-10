@@ -81,12 +81,28 @@ def get_OOS_pred(user, s, v, films_nb, epochs=20):
     return ((unew @ s @ v + umean.expand(films_nb, user.size()[0]).transpose(0, 1)) * (user == 0.) + user).detach()
 
 
+def get_fx(user, s, v, films_nb, epochs=20):
+    umean = user.sum() / (user != 0.).sum()
+    umask = user != 0.
+
+    unew = nn.Parameter(torch.zeros(1, s.size()[0], device=user.device, requires_grad=True))
+
+    opt = optim.Adagrad([unew])
+
+    for epoch in range(epochs):
+        pred = unew @ s @ v + umean.expand(films_nb)
+        loss = torch.sum(torch.pow(((user - pred) * umask), 2)) / torch.sum(umask)
+        loss.backward()
+        opt.step()
+        opt.zero_grad()
+
+    return ((unew @ s @ v + umean.expand(films_nb)) * (user == 0.) + user).detach()
+
 # Quick Out of sample prediction for matrix factorization
 # WITH REDUCED SET OF DIMENSIONS
 # Minimizes the error reconstructing it's ratings
 # TODO -> same as get_OOS_pred
 def get_OOS_pred_inner(user, s, v, films_nb, epochs=20):
-    # print("  --- --- ---")
     umean = user.sum(axis=1) / (user != 0.).sum(axis=1)
     umask = user != 0.
 
