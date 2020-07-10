@@ -7,8 +7,11 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.sparse.linalg import svds
 from scipy.sparse import coo_matrix
-from models import LinearRecommender, get_OOS_pred_inner, train
-from utility import load_data_small, perturbations
+from models import LinearRecommender, get_OOS_pred_inner, train, get_OOS_pred
+from utility import load_data_small, perturbations, path_from_root, pick_cluster
+from scipy.spatial.distance import pdist, squareform
+from sklearn.cluster import AgglomerativeClustering
+from scipy.cluster.hierarchy import dendrogram, linkage, to_tree
 import loss
 
 # Gestion du mode pytorch CPU/GPU
@@ -60,9 +63,7 @@ def plot_dendrogram(model, **kwargs):
     # Plot the corresponding dendrogram
     dendrogram(linkage_matrix, **kwargs)
 
-from scipy.spatial.distance import pdist, squareform
-from sklearn.cluster import AgglomerativeClustering
-from scipy.cluster.hierarchy import dendrogram, linkage
+
 
 movie_id = 350
 
@@ -80,37 +81,74 @@ reg.fit(LX, Ly)
 
 # select indexes of non 0 coefficients to determine the reduced space
 indexes = np.argwhere(reg.coef_ != 0).T.flatten()
+n_dim_int = np.sum(reg.coef_ != 0)
 
 # build distance matrix for clustering
+# TODO -> add current film with higher wheight
 dist = pdist(np.nan_to_num(all_actual_ratings)[:, list(indexes)])
-print(dist)
 
-#c_dist = pdist(np.nan_to_num(all_actual_ratings), metric='cosine')
-#dist = pdist(np.nan_to_num(all_actual_ratings)[:, [movie_id]])
-
-#dist += (c_dist/2.5)
-#del c_dist
 
 linked = linkage(dist, 'ward')
 
-plt.figure(figsize=(20, 10))
-dendrogram(linked,
-            orientation='top',
-            distance_sort='descending',
-            show_leaf_counts=True,
-           truncate_mode='level',
-           p=10)
-plt.show()
-
-#clustering = AgglomerativeClustering(affinity='precomputed', linkage='average', distance_threshold=0, n_clusters=None)
-#clustering.fit(squareform(dist))
-
-#print(squareform(dist))
-
-#plot_dendrogram(clustering, truncate_mode='level', p=3)
+#plt.figure(figsize=(20, 10))
+#dendrogram(linked, orientation='top', distance_sort='descending',
+#            show_leaf_counts=True, truncate_mode='level', p=10)
 #plt.show()
+
+rootnode, nodelist = to_tree(linked, rd=True)
+
+user_id = 42
+
+path = path_from_root(rootnode, nodelist[user_id])
+cluster_ids = pick_cluster(path)
+cluster_ids.remove(user_id)
+print(cluster_ids)
+
+n_neighbors = len(cluster_ids)
+
+s = torch.tensor(sigma, device=device, dtype=torch.float32)
+v = torch.tensor(Vt, device=device, dtype=torch.float32)
+
+# 1. Generate perturbations in interpretable space
+base_user = torch.tensor(np.nan_to_num(all_actual_ratings[user_id, other_movies]), device=device, dtype=torch.float32)
+# here the interpretable space is a reduction of the initial space based on indexes
+base_user_int = base_user[reg.coef_ != 0]
+
+pert_int = perturbations(base_user_int, n_neighbors, std=2)
+pert_orr = torch.zeros(n_neighbors, films_nb - 1, device=device)
+
+# 2. generate perturbations in original space
+i = 0
+for pu in pert_int:
+    pert_orr[i] = base_user.detach().clone()
+    j = 0
+    for index in indexes:
+        pert_orr[i][index] = pert_int[i][j]
+        j += 1
+    i += 1
+
+print(pert_orr.size(), s.size(), v.size(), films_nb)
+y_orr = get_OOS_pred(pert_orr, s, v, films_nb)
+
+# add points from cluster
+base_cluster = torch.tensor(np.nan_to_num(all_actual_ratings[:, other_movies])[cluster_ids], device=device, dtype=torch.float32)
+pert_int = torch.cat((pert_int, base_cluster[:, reg.coef_ != 0]))
+pert_orr = torch.cat((pert_orr, base_cluster))
+
+print(y_orr.size())
+
+model = LinearRecommender(n_dim_int)
+
+l = loss.LocalLossMAE_v3(base_user, map_fn=lambda _: pert_orr, sigma=0.3)
+
+train(model, pert_int, y_orr[:, movie_id], l, 100, verbose=False)
+
+gx_ = model(base_user_int).item()
+fx = y_orr[:, movie_id].mean().item()
+print(gx_, fx, all_user_predicted_ratings[user_id, movie_id])
 
 
 # -> lasso pour le film
 # -> id cluster de l'user
-#
+# -> trouver la coupure, regarder liste d'agregation de l'user et taille des clusters specific faire le cut d'inertie max
+# -> do smart perturbations from user, from cluster points, etc

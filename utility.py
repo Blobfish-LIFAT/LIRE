@@ -57,6 +57,46 @@ def load_data_small():
 
     return U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb
 
+
+def path_from_root(r, node):
+    def hasPath_int(root, arr):
+        if root is None:
+            return False
+
+        arr.append(root)
+
+        if root is node:
+            return True
+        elif hasPath_int(root.left, arr) or hasPath_int(root.right, arr):
+            return True
+        else:
+            arr.pop(-1)
+            return False
+
+    acc = []
+    if hasPath_int(r, acc):
+        return acc
+    else:
+        return None
+
+
+def pick_cluster(l):
+    counts = map(lambda n: n.count, l)
+    counts = list(filter(lambda c: c > 10, counts))
+    inertia = []
+
+    for i in range(len(counts) - 1):
+        inertia.append(float(counts[i]) / counts[i + 1])
+
+    inertia = np.array(inertia)
+    index = np.argmax(inertia) + 1
+
+    nodes = l[index].pre_order(lambda x: x)
+    nodes = filter(lambda n: n.is_leaf(), nodes)
+
+    return list(map(lambda n: n.get_id(), nodes))
+
+
 if __name__ == '__main__':
     user = torch.tensor([0,0,1,2,3,4,5,6,7,8,9.])
     print(perturbations_uniform(user, 10))
