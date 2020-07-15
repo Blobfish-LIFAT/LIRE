@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import numpy as np
 
 from config import Config
 
@@ -11,7 +12,7 @@ class LinearRecommender(nn.Module):
         self.dims = in_shape  # number of dimensions (eg movies)
         self.decay = torch.tensor(decay, device=Config.device())
         self.omega = nn.Parameter(
-            torch.abs(nn.init.normal_(torch.zeros((self.dims,), device=Config.device()), mean=.0, std=0.1)))
+            nn.init.normal_(torch.zeros((self.dims,), device=Config.device()), mean=.0, std=0.2))
 
     def forward(self, x):
         # init output
@@ -29,6 +30,27 @@ class LinearRecommender(nn.Module):
         # y[u] =  torch.sum( (torch.sum(x * self.omega.expand(x.size()[0], self.dims), axis = 1) /  torch.sum(self.omega)) * sim ) / norm
 
         return y
+
+# args :
+# 0 : number of users
+# 1 : x
+# 2 : y
+# 3 : x' original space projection of x
+# 4 : ref user
+# 5 : kernel width
+def linear_recommender(omega, *args):
+    ex = np.array([[1]*args[0]])
+    omega = omega.reshape((1, omega.shape[0]))
+
+    pred = np.sum(args[1] * (ex.T @ omega)) / np.sum(omega)
+
+    err = np.abs(pred - args[2])
+
+    sim = np.sum(args[4] * args[3], 1) / (
+            np.sqrt(np.sum((args[4]) ** 2)) * np.sqrt(np.sum((args[3]) ** 2, 1)))
+    sim = np.exp(-0.5 * np.power((sim - 1) / args[5], 2))
+
+    return np.mean(err * sim)
 
 
 # Training loop
@@ -119,3 +141,8 @@ def get_OOS_pred_inner(user, s, v, films_nb, epochs=20):
 
     # Warning: nb_films-1 as we work in a space where a movie was removed to be explained
     return ((unew @ s @ v + umean.expand(films_nb - 1, user.size()[0]).transpose(0, 1)) * (user == 0.) + user).detach()
+
+
+if __name__ == '__main__':
+    omega = np.ones((1, 3))*0.1
+    print(linear_recommender(omega, 3, np.array([[4, 3.2, 8]])))

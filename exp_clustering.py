@@ -1,15 +1,17 @@
 import torch
 import numpy as np
 from sklearn import linear_model
-from models import LinearRecommender, train, get_OOS_pred, get_fx
+from models import LinearRecommender, train, get_OOS_pred, linear_recommender
 from utility import load_data, perturbations, path_from_root, pick_cluster
 from scipy.spatial.distance import pdist
+from scipy.optimize import minimize
 from scipy.cluster.hierarchy import linkage, to_tree
 import loss
 import random
 
 # Gestion du mode pytorch CPU/GPU
 from config import Config
+random.seed(42)
 
 Config.set_device_cpu()
 device = Config.getInstance().device_
@@ -120,7 +122,7 @@ for pratio in [0.1, 0.5, 0.9]:
 
                 models = []
                 errors = []
-                for i in range(20):
+                for i in range(50):
                     model = LinearRecommender(n_dim_int)
 
                     l = loss.LocalLossMAE_v3(
@@ -129,14 +131,25 @@ for pratio in [0.1, 0.5, 0.9]:
 
                     train(model, pert_int, y_orr[:, MOVIE_ID], l, 100, verbose=False)
 
+                    #solution = minimize(linear_recommender, np.random.normal(0, 0.1, size=(1, n_dim_int)),
+                    #                   (N_TRAINING_POINTS, pert_int.numpy(), y_orr[:, MOVIE_ID].numpy(), pert_orr.numpy(), np.nan_to_num(all_actual_ratings[USER_ID]), 0.25))
+
                     gx_ = model(base_user_int).item()
+                    #model_2 = LinearRecommender(n_dim_int)
+                    #model_2.omega = torch.nn.Parameter(torch.tensor(solution.x))
+                    #gx_2 = model_2(base_user_int).item()
                     # fx = get_fx(torch.tensor(np.nan_to_num(all_actual_ratings[USER_ID]), device=device, dtype=torch.float32), s, v, films_nb)[0, MOVIE_ID].item()
                     fx = all_user_predicted_ratings[USER_ID, MOVIE_ID]
                     errors.append(abs(gx_ - fx))
                     models.append(model)
+                    #print(abs(gx_ - fx), abs(gx_2 - fx))
                     if abs(gx_ - fx) < 0.1:
                         break
                 best = np.argmin(errors)
+                if errors[best] > 1.0:
+                    print('number of users seen', np.sum(np.nan_to_num(all_actual_ratings[:,MOVIE_ID]) ) )
+                    print('number of movies seen', np.sum(np.nan_to_num(all_actual_ratings[USER_ID]) ))
+                    print(base_user_int)
                 print("mae", errors[best])
 
                 with open(OUTFILE, mode="a") as file:
