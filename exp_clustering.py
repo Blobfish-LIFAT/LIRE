@@ -122,7 +122,7 @@ for pratio in [0.1, 0.5, 0.9]:
 
                 models = []
                 errors = []
-                for i in range(50):
+                for i in range(10):
                     model = LinearRecommender(n_dim_int)
 
                     l = loss.LocalLossMAE_v3(
@@ -131,28 +131,65 @@ for pratio in [0.1, 0.5, 0.9]:
 
                     train(model, pert_int, y_orr[:, MOVIE_ID], l, 100, verbose=False)
 
-                    #solution = minimize(linear_recommender, np.random.normal(0, 0.1, size=(1, n_dim_int)),
-                    #                   (N_TRAINING_POINTS, pert_int.numpy(), y_orr[:, MOVIE_ID].numpy(), pert_orr.numpy(), np.nan_to_num(all_actual_ratings[USER_ID]), 0.25))
-
                     gx_ = model(base_user_int).item()
-                    #model_2 = LinearRecommender(n_dim_int)
-                    #model_2.omega = torch.nn.Parameter(torch.tensor(solution.x))
-                    #gx_2 = model_2(base_user_int).item()
-                    # fx = get_fx(torch.tensor(np.nan_to_num(all_actual_ratings[USER_ID]), device=device, dtype=torch.float32), s, v, films_nb)[0, MOVIE_ID].item()
                     fx = all_user_predicted_ratings[USER_ID, MOVIE_ID]
                     errors.append(abs(gx_ - fx))
                     models.append(model)
-                    #print(abs(gx_ - fx), abs(gx_2 - fx))
                     if abs(gx_ - fx) < 0.1:
                         break
-                best = np.argmin(errors)
-                if errors[best] > 1.0:
-                    print('number of users seen', np.sum(np.nan_to_num(all_actual_ratings[:,MOVIE_ID]) ) )
-                    print('number of movies seen', np.sum(np.nan_to_num(all_actual_ratings[USER_ID]) ))
-                    print(base_user_int)
-                print("mae", errors[best])
+
+                best = errors[np.argmin(errors)]
+
+                if best > 1.0:
+                    print("Failover ! non zero dims ->", sum(base_user_int).item())
+                    nonzero_idx = base_user != 0.
+                    base_user_int = base_user[nonzero_idx]
+
+                    # 1. Generate perturbations in interpretable space
+                    pert_int = perturbations(base_user_int, PERTURBATION_NB, std=PERT_STD)
+                    pert_orr = torch.zeros(PERTURBATION_NB, films_nb, device=device)
+
+                    # 2. generate perturbations in original space
+                    i = 0
+                    for pu in pert_int:
+                        pert_orr[i] = torch.tensor(np.nan_to_num(all_actual_ratings[USER_ID]), device=device,
+                                                   dtype=torch.float32)
+                        j = 0
+                        for index in indexes:
+                            pert_orr[i][index] = pert_int[i][j]
+                            j += 1
+                        i += 1
+
+                    y_orr = get_OOS_pred(pert_orr, s, v, films_nb)
+
+                    # add points from cluster
+                    base_cluster = torch.tensor(np.nan_to_num(all_actual_ratings[:, other_movies])[cluster_ids],
+                                                device=device,
+                                                dtype=torch.float32)
+                    pert_int = torch.cat((pert_int, base_cluster[:, nonzero_idx]))
+                    pert_orr = torch.cat((pert_orr, torch.tensor(np.nan_to_num(all_actual_ratings)[cluster_ids], device=device,
+                                                dtype=torch.float32)))
+                    y_orr = torch.cat(
+                        (y_orr, torch.tensor(np.nan_to_num(all_user_predicted_ratings[cluster_ids]), device=device,
+                                             dtype=torch.float32)))
+
+                    alt = linear_model.Lars(fit_intercept=True, n_nonzero_coefs=N_FEATS)
+                    alt.fit(pert_int, y_orr[:, MOVIE_ID])
+
+                    #model = LinearRecommender(int(sum(nonzero_idx)))
+
+                    #l = loss.LocalLossMAE_v3(
+                    #    torch.tensor(np.nan_to_num(all_actual_ratings[USER_ID]), device=device, dtype=torch.float32),
+                    #    map_fn=lambda _: pert_orr, sigma=0.3)
+
+                    #train(model, pert_int, y_orr[:, MOVIE_ID], l, 100, verbose=False)
+
+                    gx_ = alt.predict(base_user_int.reshape(1, -1))
+                    #gx_ = model(base_user_int).item()
+                    fx = all_user_predicted_ratings[USER_ID, MOVIE_ID]
+                    print('failover mae', abs(gx_ - fx))
 
                 with open(OUTFILE, mode="a") as file:
-                    out = [CLS_MOVIE_WEIGHT, N_TRAINING_POINTS, PERTURBATION_RATIO, N_FEATS, PERT_STD, errors[best]]
+                    out = [CLS_MOVIE_WEIGHT, N_TRAINING_POINTS, PERTURBATION_RATIO, N_FEATS, PERT_STD, best]
                     out = map(str, out)
                     file.write(','.join(out) + '\n')
