@@ -5,6 +5,7 @@ import numpy as np
 from scipy.sparse.linalg import svds
 from scipy.sparse import coo_matrix
 from scipy.cluster.hierarchy import dendrogram
+from random import sample
 
 from config import Config
 
@@ -49,7 +50,6 @@ def perturbations_3(ux):
     tmp = torch.tensor(ux[ux > 0])
 
     nb_non_zero_dim = tmp.size()[0]
-    print("non zero elements", nb_non_zero_dim)
     users = ux.expand(nb_non_zero_dim, nb_dim).clone()
 
     # for loop are bad in Python!
@@ -64,6 +64,37 @@ def perturbations_3(ux):
 
     return users
 
+# Make Perturbations
+def perturbations_4(ux, fake_users):
+
+    """
+    Generate random perturbed users from ux by exchanging 2 feature dimensions
+    :param ux: initial user
+    :param fake_users: number of perturbed instances based on user
+    :return: a set of perturbed users
+    """
+
+    nb_dim = ux.size()[0]
+    users = ux.expand(fake_users, nb_dim).clone()
+    #print(users)
+
+    tmp = torch.tensor(ux[ux > 0])
+    # nb_non_zero_dim = tmp.size()[0]
+    # print(nb_non_zero_dim)
+
+    # small loop can't hurt
+    r = range(nb_dim-1)
+    non_zeros = np.argwhere((ux > 0).numpy())
+    zeros = np.argwhere((ux == 0).numpy())
+
+    for i in range(fake_users):
+        a = non_zeros[np.random.randint(low=0,high=non_zeros.size)][0]
+        b = zeros[np.random.randint(low=0,high=zeros.size)][0]
+        v = users[i][a]
+        users[i][a] = users[i][b]
+        users[i][b] = v
+
+    return users
 
 
 def load_data_small():
