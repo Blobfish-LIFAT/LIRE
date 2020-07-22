@@ -23,11 +23,13 @@ def perturbations(ux, fake_users, std=2, proba=0.1):
 
 
 # Make Perturbations
-def perturbations_uniform(ux, fake_users, proba=0.1):
+def perturbations_uniform(ux, fake_users, proba=0.25):
     nb_dim = ux.size()[0]
     users = ux.expand(fake_users, nb_dim)
 
     rd_mask = torch.zeros(fake_users, nb_dim, device=Config.device()).uniform_() > (proba)
+
+    print(rd_mask * users)
 
     return rd_mask * users
 

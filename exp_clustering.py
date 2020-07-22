@@ -3,7 +3,7 @@ import numpy as np
 from numpy import savetxt
 from sklearn import linear_model
 from models import LinearRecommender, train, get_OOS_pred, linear_recommender
-from utility import load_data, perturbations, path_from_root, pick_cluster
+from utility import load_data, perturbations, path_from_root, pick_cluster, perturbations_uniform
 from scipy.spatial.distance import pdist
 from scipy.optimize import minimize
 from scipy.cluster.hierarchy import linkage, to_tree
@@ -66,7 +66,8 @@ for N_FEATS in [10]:
                 w[len(indexes)] = float(CLS_MOVIE_WEIGHT)
                 points = np.nan_to_num(all_actual_ratings)
                 points[:, MOVIE_ID] = all_user_predicted_ratings[:, MOVIE_ID]
-                dist = np.clip(pdist(points[:, metric_indexes], lambda x1, x2: cosine(x1, x2, w)), 0., np.inf)
+                #dist = np.clip(pdist(points[:, metric_indexes], lambda x1, x2: cosine(x1, x2, w)), 0., np.inf)
+                dist = pdist(points[:, metric_indexes], 'wminkowski', p=2, w=w)
 
                 linked = linkage(dist, 'ward')
                 rootnode, nodelist = to_tree(linked, rd=True)
@@ -99,7 +100,7 @@ for N_FEATS in [10]:
                     # here the interpretable space is a reduction of the initial space based on indexes
                     base_user_int = base_user[reg.coef_ != 0]
 
-                    pert_int = perturbations(base_user_int, PERTURBATION_NB, std=PERT_STD, proba=0.9)
+                    pert_int = perturbations_uniform(base_user_int, PERTURBATION_NB)
                     pert_orr = torch.zeros(PERTURBATION_NB, films_nb, device=device)
 
                     # 2. generate perturbations in original space
