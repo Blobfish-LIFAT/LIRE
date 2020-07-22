@@ -24,14 +24,46 @@ def perturbations(ux, fake_users, std=2, proba=0.1):
 
 # Make Perturbations
 def perturbations_uniform(ux, fake_users, proba=0.25):
+    """
+    :param ux: initial user
+    :param fake_users: number of perturbed copies from the initial user
+    :param proba: probability of changing a value
+    :return: a matrix of perturbed fake users
+    """
     nb_dim = ux.size()[0]
     users = ux.expand(fake_users, nb_dim)
-
     rd_mask = torch.zeros(fake_users, nb_dim, device=Config.device()).uniform_() > (proba)
 
-    print(rd_mask * users)
+    #print(rd_mask * users)
 
     return rd_mask * users
+
+# Make Perturbations
+def perturbations_3(ux):
+    """
+        Generate all possible perturbed users from ux by removing each time a single feature dimension
+        :param ux: initial user
+        :return: a matrix of perturbed fake users
+    """
+    nb_dim = ux.size()[0]
+    tmp = torch.tensor(ux[ux > 0])
+
+    nb_non_zero_dim = tmp.size()[0]
+    print("non zero elements", nb_non_zero_dim)
+    users = ux.expand(nb_non_zero_dim, nb_dim).clone()
+
+    # for loop are bad in Python!
+    row = 0
+    col = 0
+    for v in (ux > 0):
+        if v:
+            users[row][col] = 0
+            row +=1
+        col += 1
+
+
+    return users
+
 
 
 def load_data_small():
@@ -178,7 +210,6 @@ def robustness(origin, origin_y, neighborhood, neighborhood_y):
         ratio = sqrt(pow(origin_y - neighborhood_y[i], 2))/(norm(origin - neighbor, 2))
         ratios.append(ratio)
     return max(ratios)
-
 
 
 if __name__ == '__main__':
