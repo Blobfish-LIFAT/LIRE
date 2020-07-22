@@ -18,7 +18,7 @@ def perturbations(ux, fake_users, std=2, proba=0.1):
     rd_mask = torch.zeros(fake_users, nb_dim, device=Config.device()).uniform_() > (1. - proba)
     perturbation = perturbation * rd_mask * (users != 0.)
     users = users + perturbation
-    #users[users > 5.] = 5. #seems to introduce detrimental bias in the training set
+    # users[users > 5.] = 5. #seems to introduce detrimental bias in the training set
     return torch.abs(users)
 
 
@@ -59,6 +59,7 @@ def load_data_small():
     np.copyto(all_user_predicted_ratings, all_actual_ratings, where=cond)
 
     return U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb
+
 
 def load_data():
     ratings_df = pd.read_csv("./ml-latest-small/ratings.csv")
@@ -106,6 +107,7 @@ def plot_dendrogram(model, **kwargs):
     # Plot the corresponding dendrogram
     dendrogram(linkage_matrix, **kwargs)
 
+
 def path_from_root(r, node):
     def hasPath_int(root, arr):
         if root is None:
@@ -145,6 +147,51 @@ def pick_cluster(l):
     return list(map(lambda n: n.get_id(), nodes))
 
 
+from scipy.spatial.distance import pdist, squareform
+
+
+def epsilon_neighborhood_fast(R, uindx, epsilon):
+    # base similarity matrix (all dot products)
+    # replace this with A.dot(A.T).toarray() for sparse representation
+    similarity = np.dot(R, R.T)
+    # inverse squared magnitude
+    inv_square_mag = 1 / np.diag(similarity)
+    # if it doesn't occur, set it's inverse magnitude to zero (instead of inf)
+    inv_square_mag[np.isinf(inv_square_mag)] = 0
+    # inverse of the magnitude
+    inv_mag = np.sqrt(inv_square_mag)
+    # cosine similarity (elementwise multiply by inverse magnitudes)
+    cosine = similarity * inv_mag
+    cosine = 1 - (cosine.T * inv_mag)
+    udist = cosine[uindx]
+    nmask = udist < epsilon
+    nmask[uindx] = False
+    #print(sum(nmask), " neighbors found (epsilon=", epsilon, ")")
+    return np.argwhere(nmask)
+
+
+from math import sqrt, pow
+from numpy.linalg import norm
+def robustness(origin, origin_y, neighborhood, neighborhood_y):
+    ratios = []
+    for i, neighbor in enumerate(neighborhood):
+        ratio = sqrt(pow(origin_y - neighborhood_y[i], 2))/(norm(origin - neighbor, 2))
+        ratios.append(ratio)
+    return max(ratios)
+
+
+
 if __name__ == '__main__':
-    user = torch.tensor([0,0,1,2,3,4,5,6,7,8,9.])
-    print(perturbations_uniform(user, 10))
+    U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data()
+    mine = []
+
+    print(np.nanstd(all_actual_ratings))
+
+    for user in range(610):
+        for e in range(1, 11):
+            voisins = epsilon_neighborhood_fast(np.nan_to_num(all_actual_ratings), user, e/10.)
+            if sum(voisins) > 0:
+                mine.append(e)
+                break
+
+    print(np.mean(mine))

@@ -31,6 +31,9 @@ class LinearRecommender(nn.Module):
 
         return y
 
+    def predict(self, X):
+        return (torch.sum(torch.tensor(X) * self.omega.expand(X.shape[0], self.dims), axis=1) / torch.sum(self.omega)).detach().numpy()
+
 # args :
 # 0 : number of users
 # 1 : x

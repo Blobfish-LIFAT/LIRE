@@ -22,14 +22,14 @@ print("Running tensor computations on", device)
 OUTFILE = "exp_clustering.csv"
 
 with open(OUTFILE, mode="w") as file:
-    file.write("CLS_MOVIE_WEIGHT,N_TRAINING_POINTS,PERTURBATION_RATIO,N_FEATS,PERT_STD,FAILOVER,MAE,MAE_FAILOVER" + '\n')
+    file.write("CLS_MOVIE_WEIGHT,N_TRAINING_POINTS,PERTURBATION_RATIO,N_FEATS,PERT_STD,FAILOVER,MAE,MAE_FAILOVER,rob,rob_cold" + '\n')
 
 
 
 
 N_TRAINING_POINTS = 50
 N_FEATS = 15
-PERT_STD = 0.2
+PERT_STD = 1.04 #empiricaly determined from dataset
 MOVIE_IDS = random.sample(range(2000), 25)
 USER_IDS = random.sample(range(610), 15)
 
@@ -66,8 +66,8 @@ for N_FEATS in [10]:
                 w[len(indexes)] = float(CLS_MOVIE_WEIGHT)
                 points = np.nan_to_num(all_actual_ratings)
                 points[:, MOVIE_ID] = all_user_predicted_ratings[:, MOVIE_ID]
-                #dist = np.clip(pdist(points[:, metric_indexes], lambda x1, x2: cosine(x1, x2, w)), 0., np.inf)
-                dist = pdist(points[:, metric_indexes], 'wminkowski', p=2, w=w)
+                dist = np.clip(pdist(points, cosine), 0., np.inf)
+                #dist = pdist(points[:, metric_indexes], 'wminkowski', p=2, w=w)
 
                 linked = linkage(dist, 'ward')
                 rootnode, nodelist = to_tree(linked, rd=True)
@@ -121,7 +121,7 @@ for N_FEATS in [10]:
                     base_cluster = torch.tensor(np.nan_to_num(all_actual_ratings[:, other_movies])[cluster_ids], device=device,
                                                 dtype=torch.float32)
                     pert_int = torch.cat((pert_int, base_cluster[:, reg.coef_ != 0]))
-                    pert_orr = torch.cat((pert_orr, torch.tensor(np.nan_to_num(all_actual_ratings)[cluster_ids], device=device,
+                    pert_orr = torch.cat((pert_orr, torch.tensor(np.nan_to_num(all_actual_ratings[cluster_ids]), device=device,
                                                                  dtype=torch.float32)))
                     y_orr = torch.cat((y_orr, torch.tensor(np.nan_to_num(all_user_predicted_ratings[cluster_ids]), device=device,
                                                            dtype=torch.float32)))
@@ -148,6 +148,7 @@ for N_FEATS in [10]:
 
                     if best > 0.0:
                         print("Failover ! non zero dims ->", sum(base_user_int).item())
+                        fail_enable = True
                         nonzero_idx = base_user != 0.
                         base_user_int = base_user[nonzero_idx]
 
@@ -173,7 +174,7 @@ for N_FEATS in [10]:
                                                     device=device,
                                                     dtype=torch.float32)
                         pert_int = torch.cat((pert_int, base_cluster[:, nonzero_idx]))
-                        pert_orr = torch.cat((pert_orr, torch.tensor(np.nan_to_num(all_actual_ratings)[cluster_ids], device=device,
+                        pert_orr = torch.cat((pert_orr, torch.tensor(np.nan_to_num(all_actual_ratings[cluster_ids]), device=device,
                                                     dtype=torch.float32)))
                         y_orr = torch.cat(
                             (y_orr, torch.tensor(np.nan_to_num(all_user_predicted_ratings[cluster_ids]), device=device,
@@ -196,7 +197,29 @@ for N_FEATS in [10]:
                         best_fail = abs(gx_ - fx)
                         print('failover mae', best_fail, "previous", best)
 
+                        best_model = alt
+                    else:
+                        fail_enable = False
+                        best_model = models[np.argmin(errors)]
+
+                    print('--- Robustness testing ---')
+                    from utility import robustness, epsilon_neighborhood_fast
+
+                    uvec = np.nan_to_num(all_actual_ratings[USER_ID])
+                    uy = best_model.predict(base_user_int.reshape(1, -1))
+
+                    nids = epsilon_neighborhood_fast(np.nan_to_num(all_actual_ratings), USER_ID, 0.7).flatten()
+                    if len(nids) > 0:
+                        npoints = np.nan_to_num(all_actual_ratings[nids])
+                        try:
+                            rob_cold = robustness(uvec, uy, npoints, best_model.predict(npoints[:, torch.tensor(np.nan_to_num(all_actual_ratings[USER_ID, :]), device=device, dtype=torch.float32) != 0 if fail_enable else reg.coef_ != 0]))
+                        except ValueError:
+                            rob_cold = np.nan
+                        rob = robustness(uvec, models[np.argmin(errors)](base_user[reg.coef_ != 0]).detach().numpy(), npoints, models[np.argmin(errors)].predict(npoints[:, other_movies][:, reg.coef_ != 0]))
+                    else:
+                        rob = rob_cold = np.nan
+
                     with open(OUTFILE, mode="a+") as file:
-                        out = [CLS_MOVIE_WEIGHT, N_TRAINING_POINTS, PERTURBATION_RATIO, N_FEATS, PERT_STD, best > 2, best, best_fail[0]]
+                        out = [CLS_MOVIE_WEIGHT, N_TRAINING_POINTS, PERTURBATION_RATIO, N_FEATS, PERT_STD, best > 2, best, best_fail[0], rob, rob_cold]
                         out = map(str, out)
                         file.write(','.join(out) + '\n')
