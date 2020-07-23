@@ -49,7 +49,6 @@ def gen_perturbations(pnb, base_user_int, all_actual_ratings, USER_ID, interp_in
         for index in interp_indexes:
             pert_orr[i][index] = pert_int[i][j]
             j += 1
-        i += 1
 
     return pert_int, pert_orr
 
@@ -75,7 +74,7 @@ def run_classic(all_actual_ratings_, all_user_predicted_ratings_, s_, v_, PERTUR
     models_ = []
     errors_ = []
     # A few runs to avoid bad starts
-    for i in range(10):
+    for _ in range(10):
         model = LinearRecommender(len(interp_space_indexes_))
         local_loss = loss.LocalLossMAE_v3(
             torch.tensor(np.nan_to_num(all_actual_ratings_[USER_ID_]), device=device, dtype=torch.float32),
@@ -142,7 +141,7 @@ for N_FEATS in [10]:
                 # select indexes of non 0 coefficients to determine the reduced space
                 interp_space_indexes = list(np.argwhere(reg.coef_ != 0).T.flatten())
 
-                # Clustering
+                # Clustering - Metric and linkage matrix
                 metric_indexes = interp_space_indexes + [MOVIE_ID]
                 w = np.ones(len(metric_indexes))
                 w[len(interp_space_indexes)] = float(CLS_MOVIE_WEIGHT)
@@ -177,7 +176,7 @@ for N_FEATS in [10]:
                     k = 10
                     # Robustness for classic
                     k_indexes = k_neighborhood(np.nan_to_num(all_actual_ratings), USER_ID, k)
-                    k_points = np.nan_to_num(all_actual_ratings[k_indexes])[:,other_movies]
+                    k_points = np.nan_to_num(all_actual_ratings[k_indexes])[:, other_movies]#TODO maybe on all movies ?
                     k_omega = torch.zeros(k, len(interp_space_indexes))
 
                     for i, neighbor in enumerate(k_indexes):
@@ -215,6 +214,7 @@ for N_FEATS in [10]:
 
                 with open(OUTFILE, mode="a+") as file:
                     file.writelines(out_lines)
+                    out_lines.clear()
 
 
 """

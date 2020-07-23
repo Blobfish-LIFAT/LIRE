@@ -194,20 +194,31 @@ def robustness(target, target_expl, neighborhood, neighborhood_expl):
 
 
 if __name__ == '__main__':
-    truc = torch.tensor([1,2,3,4,5,2,3,4,1,0,0,0,1,2,3])
-    pert = perturbations_gaussian(truc, 20)
-    print(pert)
 
     U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data()
-    mine = []
 
-    print(np.nanstd(all_actual_ratings))
+    R = np.nan_to_num(all_actual_ratings)
 
-    for user in range(610):
-        for e in range(1, 11):
-            voisins = epsilon_neighborhood_fast(np.nan_to_num(all_actual_ratings), user, e/10.)
-            if sum(voisins) > 0:
-                mine.append(e)
-                break
+    similarity = np.dot(R, R.T)
+    # inverse squared magnitude
+    inv_square_mag = 1 / np.diag(similarity)
+    # if it doesn't occur, set it's inverse magnitude to zero (instead of inf)
+    inv_square_mag[np.isinf(inv_square_mag)] = 0
+    # inverse of the magnitude
+    inv_mag = np.sqrt(inv_square_mag)
+    # cosine similarity (elementwise multiply by inverse magnitudes)
+    cosine = similarity * inv_mag
+    cosine = 1 - (cosine.T * inv_mag)
 
-    print(np.mean(mine))
+with open("res/exp_willeme.csv", mode="w") as fout:
+    fout.write("userId;voisins;distances\n")
+    for user in [12, 601, 89, 154, 548, 325, 245, 45, 489, 42, 29, 215]:
+
+        udist = cosine[user]
+        res = list(np.argsort(udist)[:15 + 1])
+        res.remove(user)
+        print("UID", user + 1, sum(R[user]))
+        print(list(map(lambda x : x + 1, res)))
+        print(cosine[user, res])
+
+        fout.write(str(user +1 ) + ";" + str(list(map(lambda x : x + 1, res))) + ";" + str(list(cosine[user, res])) + "\n")
