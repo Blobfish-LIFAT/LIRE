@@ -4,7 +4,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 from models import LinearRecommender, get_OOS_pred, train
-from utility import load_data_small, perturbations_gaussian
+from utility import load_data_small
+from perturbations import perturbations_gaussian
 from categories import GenresSpace
 import loss
 
@@ -21,7 +22,7 @@ for kern in [0.1, 0.2, 0.3, 0.4, 0.5]:
         for pert_proba in [0.1, 0.2, 0.3, 0.4]:
             configs.append((kern, pert_std, pert_proba))
 
-with open("genres_exp.csv", mode="w") as file:
+with open("res/genres_exp.csv", mode="w") as file:
     file.write("type;n_feats;sigma;pert_std;pert_proba;fid_mean;fid_std\n")
 
     for test_conf in configs:

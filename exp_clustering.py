@@ -3,7 +3,8 @@ import numpy as np
 from numpy import savetxt
 from sklearn import linear_model
 from models import LinearRecommender, train, get_OOS_pred, linear_recommender
-from utility import load_data, perturbations_gaussian, path_from_root, pick_cluster, perturbations_3
+from utility import load_data, path_from_root, pick_cluster
+from perturbations import perturbations_3, perturbations_gaussian
 from scipy.spatial.distance import pdist
 from scipy.optimize import minimize
 from scipy.cluster.hierarchy import linkage, to_tree
@@ -19,8 +20,7 @@ Config.set_device_cpu()
 device = Config.getInstance().device_
 print("Running tensor computations on", device)
 
-OUTFILE = "exp_clustering.csv"
-
+OUTFILE = "res/exp_clustering.csv"
 with open(OUTFILE, mode="w") as file:
     file.write("CLS_MOVIE_WEIGHT,N_TRAINING_POINTS,PERTURBATION_RATIO,N_FEATS,PERT_STD,FAILOVER,MAE,MAE_FAILOVER,rob,rob_cold" + '\n')
 

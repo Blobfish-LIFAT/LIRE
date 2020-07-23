@@ -1,95 +1,16 @@
 import torch
-import torch.nn as nn
+
 import pandas as pd
 import numpy as np
+
 from scipy.sparse.linalg import svds
 from scipy.sparse import coo_matrix
 from scipy.cluster.hierarchy import dendrogram
 
-from config import Config
+from math import sqrt, pow
+from numpy.linalg import norm
 
-
-def perturbations_gaussian(ux, fake_users: int, std=2, proba=0.1):
-    nb_dim = ux.size()[0]
-    users = ux.expand(fake_users, nb_dim).detach().clone()
-
-    perturbation = nn.init.normal_(torch.zeros(fake_users, nb_dim, device=Config.device()), 0, std)
-    rd_mask = torch.zeros(fake_users, nb_dim, device=Config.device()).uniform_() > (1. - proba)
-    perturbation = perturbation * rd_mask * (users != 0.)
-    users = users + perturbation
-    # users[users > 5.] = 5. #seems to introduce detrimental bias in the training set
-    return torch.abs(users)
-
-
-def perturbations_uniform(ux, fake_users, proba=0.25):
-    """
-    :param ux: initial user
-    :param fake_users: number of perturbed copies from the initial user
-    :param proba: probability of changing a value
-    :return: a matrix of perturbed fake users
-    """
-    nb_dim = ux.size()[0]
-    users = ux.expand(fake_users, nb_dim).detach().clone()
-    rd_mask = torch.zeros(fake_users, nb_dim, device=Config.device()).uniform_() > (proba)
-
-    #print(rd_mask * users)
-
-    return rd_mask * users
-
-
-def perturbations_3(ux):
-    """
-        Generate all possible perturbed users from ux by removing each time a single feature dimension
-        :param ux: initial user
-        :return: a matrix of perturbed fake users
-    """
-    nb_dim = ux.size()[0]
-    tmp = torch.tensor(ux[ux > 0])
-
-    nb_non_zero_dim = tmp.size()[0]
-    users = ux.expand(nb_non_zero_dim, nb_dim).detach().clone()
-
-    # for loop are bad in Python!
-    row = 0
-    col = 0
-    for v in (ux > 0):
-        if v:
-            users[row][col] = 0
-            row +=1
-        col += 1
-
-
-    return users
-
-
-def perturbations_swap(ux, fake_users: int):
-
-    """
-    Generate random perturbed users from ux by exchanging 2 feature dimensions
-    :param ux: initial user
-    :param fake_users: number of perturbed instances based on user
-    :return: a set of perturbed users
-    """
-
-    nb_dim = ux.size()[0]
-    users = ux.expand(fake_users, nb_dim).detach().clone()
-    #print(users)
-
-    #tmp = torch.tensor(ux[ux > 0])
-    # nb_non_zero_dim = tmp.size()[0]
-    # print(nb_non_zero_dim)
-
-    # small loop can't hurt
-    non_zeros = np.argwhere((ux > 0.).numpy()).flatten()
-    zeros = np.argwhere((ux == 0.).numpy()).flatten()
-
-    for i in range(fake_users):
-        a = non_zeros[np.random.randint(low=0, high=non_zeros.size)]
-        b = zeros[np.random.randint(low=0, high=zeros.size)]
-        users[i][a] = ux[b].detach().clone()
-        users[i][b] = ux[a].detach().clone()
-
-    return users
+from perturbations import perturbations_gaussian
 
 
 def load_data_small():
@@ -209,9 +130,6 @@ def pick_cluster(l):
     return list(map(lambda n: n.get_id(), nodes))
 
 
-from scipy.spatial.distance import pdist, squareform
-
-
 def epsilon_neighborhood_fast(R, uindx, epsilon):
     # base similarity matrix (all dot products)
     # replace this with A.dot(A.T).toarray() for sparse representation
@@ -232,12 +150,30 @@ def epsilon_neighborhood_fast(R, uindx, epsilon):
     return np.argwhere(nmask)
 
 
-from math import sqrt, pow
-from numpy.linalg import norm
+def k_neighborhood(R, uindx, k):
+    # base similarity matrix (all dot products)
+    # replace this with A.dot(A.T).toarray() for sparse representation
+    similarity = np.dot(R, R.T)
+    # inverse squared magnitude
+    inv_square_mag = 1 / np.diag(similarity)
+    # if it doesn't occur, set it's inverse magnitude to zero (instead of inf)
+    inv_square_mag[np.isinf(inv_square_mag)] = 0
+    # inverse of the magnitude
+    inv_mag = np.sqrt(inv_square_mag)
+    # cosine similarity (elementwise multiply by inverse magnitudes)
+    cosine = similarity * inv_mag
+    cosine = 1 - (cosine.T * inv_mag)
+    udist = cosine[uindx]
+
+    res = list(np.argsort(udist)[:k+1])
+    res.remove(uindx)
+    return res
+
+
 def robustness(origin, origin_y, neighborhood, neighborhood_y):
     ratios = []
     for i, neighbor in enumerate(neighborhood):
-        ratio = sqrt(pow(origin_y - neighborhood_y[i], 2))/(norm(origin - neighbor, 2))
+        ratio = sqrt(pow(origin_y - neighborhood_y[i], 2)) / (norm(origin - neighbor, 2))
         ratios.append(ratio)
     return max(ratios)
 

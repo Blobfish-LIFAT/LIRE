@@ -5,7 +5,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 from models import LinearRecommender, get_OOS_pred_inner, train
-from utility import load_data_small, perturbations_gaussian
+from utility import load_data_small
+from perturbations import perturbations_gaussian
 import loss
 
 # Gestion du mode pytorch CPU/GPU
@@ -23,7 +24,7 @@ for n_feats in [5, 10, 15, 20]:
         for pert_std in [1, 2, 3, 4, 5]:
             configs.append((n_feats, sigma, pert_std))
 
-with open("lasso_exp.csv", mode="w") as file:
+with open("res/lasso_exp.csv", mode="w") as file:
     file.write("type;n_feats;sigma;pert_std;fid_mean;fid_std\n")
 
     for test_conf in configs:
