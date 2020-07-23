@@ -130,6 +130,20 @@ def pick_cluster(l):
     return list(map(lambda n: n.get_id(), nodes))
 
 
+def get_user_cluster(USER_ID, root_node, user_node):
+    path = path_from_root(root_node, user_node)
+    try:
+        cluster_ids = pick_cluster(path)
+    except ValueError:
+        print("[ERROR] Error on clustering")
+        return None
+
+    if USER_ID in cluster_ids:
+        cluster_ids.remove(USER_ID)
+
+    return cluster_ids
+
+
 def epsilon_neighborhood_fast(R, uindx, epsilon):
     # base similarity matrix (all dot products)
     # replace this with A.dot(A.T).toarray() for sparse representation
@@ -170,10 +184,11 @@ def k_neighborhood(R, uindx, k):
     return res
 
 
+from scipy.spatial.distance import cosine as cosine_dist
 def robustness(origin, origin_y, neighborhood, neighborhood_y):
     ratios = []
     for i, neighbor in enumerate(neighborhood):
-        ratio = sqrt(pow(origin_y - neighborhood_y[i], 2)) / (norm(origin - neighbor, 2))
+        ratio = cosine_dist(origin_y, neighborhood_y[i]) / cosine_dist(origin, neighbor)
         ratios.append(ratio)
     return max(ratios)
 
