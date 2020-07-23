@@ -1,12 +1,10 @@
 import torch
 import numpy as np
-from numpy import savetxt
 from sklearn import linear_model
-from models import LinearRecommender, train, get_OOS_pred, linear_recommender
-from utility import load_data, path_from_root, pick_cluster, get_user_cluster
-from perturbations import perturbations_3, perturbations_gaussian
+from models import LinearRecommender, train, get_OOS_pred
+from utility import load_data, get_user_cluster, k_neighborhood, robustness
+from perturbations import perturbations_gaussian
 from scipy.spatial.distance import pdist
-from scipy.optimize import minimize
 from scipy.cluster.hierarchy import linkage, to_tree
 from scipy.spatial.distance import cosine
 import loss
@@ -31,9 +29,18 @@ USER_IDS = random.sample(range(610), 10)
 verbose = False
 
 
-def gen_perturbations(pnb, fnb, base_user_int, all_actual_ratings, USER_ID, interp_indexes):
+def gen_perturbations(pnb, base_user_int, all_actual_ratings, USER_ID, interp_indexes):
+    """
+    Generate perturbations and their image in original space
+    :param pnb: number of perturbations
+    :param base_user_int: user to perturbate in interpretable representation
+    :param all_actual_ratings: original ratings matrix
+    :param USER_ID: index of the user to perturbate
+    :param interp_indexes: indexes of interpretable space
+    :return: a pnb x |interp_indexes| matrix with the perturbations
+    """
     pert_int = perturbations_gaussian(base_user_int, pnb, std=PERT_STD)
-    pert_orr = torch.zeros(pnb, fnb, device=device)
+    pert_orr = torch.zeros(pnb, all_actual_ratings.shape[1], device=device)
 
     # 2. generate perturbations in original space
     for i, pu in enumerate(pert_int):
@@ -54,7 +61,7 @@ def run_classic(all_actual_ratings_, all_user_predicted_ratings_, s_, v_, PERTUR
     # 1. Generate perturbations in interpretable space
     # here the interpretable space is a reduction of the initial space based on indexes
     base_user_int = base_user[reg.coef_ != 0]
-    pert_int, pert_orr = gen_perturbations(PERTURBATION_NB_, films_nb_, base_user_int, all_actual_ratings_, USER_ID_, interp_space_indexes_)
+    pert_int, pert_orr = gen_perturbations(PERTURBATION_NB_, base_user_int, all_actual_ratings_, USER_ID_, interp_space_indexes_)
     y_orr = get_OOS_pred(pert_orr, s_, v_, films_nb_)
 
     # add points from cluster
@@ -85,11 +92,10 @@ def run_classic(all_actual_ratings_, all_user_predicted_ratings_, s_, v_, PERTUR
     return errors_, models_
 
 
-def run_cold(all_actual_ratings_, all_user_predicted_ratings_, s_, v_, PERTURBATION_NB_, USER_ID_, N_FEATS_, other_movies_, cluster_ids_, base_user_):
-    nonzero_idx = base_user_ != 0.
+def run_cold(all_actual_ratings_, all_user_predicted_ratings_, s_, v_, PERTURBATION_NB_, USER_ID_, N_FEATS_, other_movies_, cluster_ids_, base_user_, nonzero_idx):
     base_user_int = base_user_[nonzero_idx]
 
-    pert_int, pert_orr = gen_perturbations(PERTURBATION_NB_, all_actual_ratings_.shape[1], base_user_int, all_actual_ratings_, USER_ID_,
+    pert_int, pert_orr = gen_perturbations(PERTURBATION_NB_, base_user_int, all_actual_ratings_, USER_ID_,
                                            np.argwhere(nonzero_idx).flatten())
     y_orr = get_OOS_pred(pert_orr, s_, v_, all_actual_ratings_.shape[1])
 
@@ -153,31 +159,57 @@ for N_FEATS in [10]:
                                              dtype=torch.float32)
                     fx = all_user_predicted_ratings[USER_ID, MOVIE_ID]
 
+                    # Find out user's cluster
                     cluster_ids = get_user_cluster(USER_ID, rootnode, nodelist[USER_ID])
                     if cluster_ids is None:
                         continue
-                    try:
+                    if len(cluster_ids) > CLUSTER_NB:
                         cluster_ids = random.sample(cluster_ids, CLUSTER_NB)
-                    except ValueError:
+                    else:
                         print("[WARNING] Not Enough points")
 
                     errors, models = run_classic(all_actual_ratings, all_user_predicted_ratings, s, v, PERTURBATION_NB, USER_ID, MOVIE_ID, interp_space_indexes, cluster_ids)
-                    best = errors[np.argmin(errors)]
+                    classic_mae = errors[np.argmin(errors)]
 
-                    if best > 0.0:
-                        if verbose: print("Failover ! non zero dims ->", sum(base_user[reg.coef_ != 0]).item())
-                        fail_enable = True
+                    alt_model, gx_ = run_cold(all_actual_ratings, all_user_predicted_ratings, s, v, PERTURBATION_NB, USER_ID, N_FEATS, other_movies, cluster_ids, base_user, base_user != 0.)
+                    cold_mae = abs(gx_ - fx)
 
-                        alt_model, gx_ = run_cold(all_actual_ratings, all_user_predicted_ratings, s, v, PERTURBATION_NB, USER_ID, N_FEATS, other_movies, cluster_ids, base_user)
+                    k = 10
+                    # Robustness for classic
+                    k_indexes = k_neighborhood(np.nan_to_num(all_actual_ratings), USER_ID, k)
+                    k_points = np.nan_to_num(all_actual_ratings[k_indexes])[:,other_movies]
+                    k_omega = torch.zeros(k, len(interp_space_indexes))
 
-                        best_fail = abs(gx_ - fx)
-                        best_model = alt_model
-                    else:
-                        fail_enable = False
-                        best_model = models[np.argmin(errors)]
+                    for i, neighbor in enumerate(k_indexes):
+                        neighbor_cluster_ids = get_user_cluster(neighbor, rootnode, nodelist[neighbor])
+                        if neighbor_cluster_ids is None:
+                            continue
+                        if len(neighbor_cluster_ids) > CLUSTER_NB:
+                            neighbor_cluster_ids = random.sample(neighbor_cluster_ids, CLUSTER_NB)
+
+                        neighbor_errors, neighbor_models = run_classic(all_actual_ratings, all_user_predicted_ratings, s, v, PERTURBATION_NB, neighbor, MOVIE_ID, interp_space_indexes, neighbor_cluster_ids)
+                        k_omega[i] = neighbor_models[np.argmin(neighbor_errors)].omega
+
+                    rob_classic = robustness(base_user.detach().numpy(), models[np.argmin(errors)].omega.detach().numpy(), k_points, k_omega.detach().numpy())# Robustness for classic
 
 
-                    out = [CLS_MOVIE_WEIGHT, N_TRAINING_POINTS, PERTURBATION_RATIO, N_FEATS, PERT_STD, best > 2, best, best_fail[0], 0, 0]
+                    #Robustness for cold
+                    k_coefs = np.zeros((k, alt_model.coef_.shape[0]))
+
+                    for i, neighbor in enumerate(k_indexes):
+                        neighbor_cluster_ids = get_user_cluster(neighbor, rootnode, nodelist[neighbor])
+                        if neighbor_cluster_ids is None:
+                            continue
+                        if len(neighbor_cluster_ids) > CLUSTER_NB:
+                            neighbor_cluster_ids = random.sample(neighbor_cluster_ids, CLUSTER_NB)
+
+                        neighbor_alt_model, neighbor_gx_ = run_cold(all_actual_ratings, all_user_predicted_ratings, s, v, PERTURBATION_NB, neighbor, N_FEATS, other_movies, neighbor_cluster_ids,
+                                                  torch.tensor(np.nan_to_num(all_actual_ratings[neighbor, other_movies]), device=device, dtype=torch.float32), base_user != 0.)
+                        k_coefs[i] = neighbor_alt_model.coef_
+
+                    rob_cold = robustness(base_user.detach().numpy(), alt_model.coef_, k_points, k_coefs)
+
+                    out = [CLS_MOVIE_WEIGHT, N_TRAINING_POINTS, PERTURBATION_RATIO, N_FEATS, PERT_STD, sum(base_user[reg.coef_ != 0]).item() == 0, classic_mae, cold_mae[0], rob_classic, rob_cold]
                     out = map(str, out)
                     out_lines.append(','.join(out) + '\n')
 

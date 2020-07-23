@@ -185,10 +185,10 @@ def k_neighborhood(R, uindx, k):
 
 
 from scipy.spatial.distance import cosine as cosine_dist
-def robustness(origin, origin_y, neighborhood, neighborhood_y):
+def robustness(target, target_expl, neighborhood, neighborhood_expl):
     ratios = []
     for i, neighbor in enumerate(neighborhood):
-        ratio = cosine_dist(origin_y, neighborhood_y[i]) / cosine_dist(origin, neighbor)
+        ratio = cosine_dist(target_expl, neighborhood_expl[i]) / cosine_dist(target, neighbor)
         ratios.append(ratio)
     return max(ratios)
 
