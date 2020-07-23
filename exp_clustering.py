@@ -3,7 +3,7 @@ import numpy as np
 from numpy import savetxt
 from sklearn import linear_model
 from models import LinearRecommender, train, get_OOS_pred, linear_recommender
-from utility import load_data, perturbations, path_from_root, pick_cluster, perturbations_uniform
+from utility import load_data, perturbations, path_from_root, pick_cluster, perturbations_3
 from scipy.spatial.distance import pdist
 from scipy.optimize import minimize
 from scipy.cluster.hierarchy import linkage, to_tree
@@ -100,8 +100,12 @@ for N_FEATS in [10]:
                     # here the interpretable space is a reduction of the initial space based on indexes
                     base_user_int = base_user[reg.coef_ != 0]
 
-                    pert_int = perturbations_uniform(base_user_int, PERTURBATION_NB)
-                    pert_orr = torch.zeros(PERTURBATION_NB, films_nb, device=device)
+                    pert_int = perturbations_3(base_user_int)
+                    if PERTURBATION_NB == 0:
+                        pert_orr = torch.zeros(0, films_nb, device=device)
+                        pert_int = torch.zeros(0, sum(reg.coef_ != 0))
+                    else:
+                        pert_orr = torch.zeros(pert_int.size()[0], films_nb, device=device)
 
                     # 2. generate perturbations in original space
                     i = 0

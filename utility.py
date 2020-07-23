@@ -75,24 +75,22 @@ def perturbations_4(ux, fake_users):
     """
 
     nb_dim = ux.size()[0]
-    users = ux.expand(fake_users, nb_dim).clone()
+    users = ux.expand(fake_users, nb_dim).detach().clone()
     #print(users)
 
-    tmp = torch.tensor(ux[ux > 0])
+    #tmp = torch.tensor(ux[ux > 0])
     # nb_non_zero_dim = tmp.size()[0]
     # print(nb_non_zero_dim)
 
     # small loop can't hurt
-    r = range(nb_dim-1)
-    non_zeros = np.argwhere((ux > 0).numpy())
-    zeros = np.argwhere((ux == 0).numpy())
+    non_zeros = np.argwhere((ux > 0).numpy()).flatten()
+    zeros = np.argwhere((ux == 0).numpy()).flatten()
 
     for i in range(fake_users):
-        a = non_zeros[np.random.randint(low=0,high=non_zeros.size)][0]
-        b = zeros[np.random.randint(low=0,high=zeros.size)][0]
-        v = users[i][a]
-        users[i][a] = users[i][b]
-        users[i][b] = v
+        a = non_zeros[np.random.randint(low=0, high=non_zeros.size)]
+        b = zeros[np.random.randint(low=0, high=zeros.size)]
+        users[i][a] = ux[b].detach().clone()
+        users[i][b] = ux[a].detach().clone()
 
     return users
 
@@ -244,6 +242,10 @@ def robustness(origin, origin_y, neighborhood, neighborhood_y):
 
 
 if __name__ == '__main__':
+    truc = torch.tensor([1,2,3,4,5,2,3,4,1,0,0,0,1,2,3])
+    pert = perturbations(truc, 20)
+    print(pert)
+
     U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data()
     mine = []
 
