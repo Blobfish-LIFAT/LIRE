@@ -4,7 +4,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 from models import LinearRecommender, get_OOS_pred, train
-from utility import load_data_small, perturbations
+from utility import load_data_small, perturbations_gaussian
 from categories import GenresSpace
 import loss
 
@@ -37,7 +37,7 @@ with open("genres_exp.csv", mode="w") as file:
             base_user = torch.tensor(np.nan_to_num(all_actual_ratings[user_id]), device=device, dtype=torch.float32)
             base_user_int = int_space.to_int_space(base_user)
 
-            pert_int = perturbations(base_user_int, 25, std=test_conf[1], proba=test_conf[2])
+            pert_int = perturbations_gaussian(base_user_int, 25, std=test_conf[1], proba=test_conf[2])
             pert_orr = torch.zeros(25, films_nb, device=device)
 
             i = 0

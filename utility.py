@@ -5,15 +5,13 @@ import numpy as np
 from scipy.sparse.linalg import svds
 from scipy.sparse import coo_matrix
 from scipy.cluster.hierarchy import dendrogram
-from random import sample
 
 from config import Config
 
 
-# Make Perturbations
-def perturbations(ux, fake_users, std=2, proba=0.1):
+def perturbations_gaussian(ux, fake_users: int, std=2, proba=0.1):
     nb_dim = ux.size()[0]
-    users = ux.expand(fake_users, nb_dim)
+    users = ux.expand(fake_users, nb_dim).detach().clone()
 
     perturbation = nn.init.normal_(torch.zeros(fake_users, nb_dim, device=Config.device()), 0, std)
     rd_mask = torch.zeros(fake_users, nb_dim, device=Config.device()).uniform_() > (1. - proba)
@@ -23,7 +21,6 @@ def perturbations(ux, fake_users, std=2, proba=0.1):
     return torch.abs(users)
 
 
-# Make Perturbations
 def perturbations_uniform(ux, fake_users, proba=0.25):
     """
     :param ux: initial user
@@ -32,14 +29,14 @@ def perturbations_uniform(ux, fake_users, proba=0.25):
     :return: a matrix of perturbed fake users
     """
     nb_dim = ux.size()[0]
-    users = ux.expand(fake_users, nb_dim)
+    users = ux.expand(fake_users, nb_dim).detach().clone()
     rd_mask = torch.zeros(fake_users, nb_dim, device=Config.device()).uniform_() > (proba)
 
     #print(rd_mask * users)
 
     return rd_mask * users
 
-# Make Perturbations
+
 def perturbations_3(ux):
     """
         Generate all possible perturbed users from ux by removing each time a single feature dimension
@@ -50,7 +47,7 @@ def perturbations_3(ux):
     tmp = torch.tensor(ux[ux > 0])
 
     nb_non_zero_dim = tmp.size()[0]
-    users = ux.expand(nb_non_zero_dim, nb_dim).clone()
+    users = ux.expand(nb_non_zero_dim, nb_dim).detach().clone()
 
     # for loop are bad in Python!
     row = 0
@@ -64,8 +61,8 @@ def perturbations_3(ux):
 
     return users
 
-# Make Perturbations
-def perturbations_4(ux, fake_users):
+
+def perturbations_swap(ux, fake_users: int):
 
     """
     Generate random perturbed users from ux by exchanging 2 feature dimensions
@@ -83,8 +80,8 @@ def perturbations_4(ux, fake_users):
     # print(nb_non_zero_dim)
 
     # small loop can't hurt
-    non_zeros = np.argwhere((ux > 0).numpy()).flatten()
-    zeros = np.argwhere((ux == 0).numpy()).flatten()
+    non_zeros = np.argwhere((ux > 0.).numpy()).flatten()
+    zeros = np.argwhere((ux == 0.).numpy()).flatten()
 
     for i in range(fake_users):
         a = non_zeros[np.random.randint(low=0, high=non_zeros.size)]
@@ -96,6 +93,10 @@ def perturbations_4(ux, fake_users):
 
 
 def load_data_small():
+    """
+    Loads a very small subset of the data for debug purposes only
+    :return: U, Sigma, Vt resutling of the SVD, along the raw user ratings and predicted user ratings and the pandas DFs
+    """
     ratings_df = pd.read_csv("./ml-latest-small/ratings.csv")
     movies_df = pd.read_csv("./ml-latest-small/movies.csv")
 
@@ -142,7 +143,7 @@ def load_data():
 
     all_actual_ratings = R_df.values
     cond = np.invert(np.isnan(all_actual_ratings))
-    np.copyto(all_user_predicted_ratings, all_actual_ratings, where=cond)
+    #np.copyto(all_user_predicted_ratings, all_actual_ratings, where=cond)
 
     return U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb
 
@@ -243,7 +244,7 @@ def robustness(origin, origin_y, neighborhood, neighborhood_y):
 
 if __name__ == '__main__':
     truc = torch.tensor([1,2,3,4,5,2,3,4,1,0,0,0,1,2,3])
-    pert = perturbations(truc, 20)
+    pert = perturbations_gaussian(truc, 20)
     print(pert)
 
     U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data()

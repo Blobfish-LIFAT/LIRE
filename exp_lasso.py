@@ -5,7 +5,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 from models import LinearRecommender, get_OOS_pred_inner, train
-from utility import load_data_small, perturbations
+from utility import load_data_small, perturbations_gaussian
 import loss
 
 # Gestion du mode pytorch CPU/GPU
@@ -75,7 +75,7 @@ with open("lasso_exp.csv", mode="w") as file:
                 # if user_id == 0:
                 #    print("first values of base_user:", base_user[indexes.T[0,0:6]])
                 #    print("first line base_user_int", base_user_int[0:6])
-                pert_int = perturbations(base_user_int, n_neighbors, std=test_conf[2])
+                pert_int = perturbations_gaussian(base_user_int, n_neighbors, std=test_conf[2])
                 pert_orr = torch.zeros(n_neighbors, films_nb - 1, device=device)
 
                 # 2. generate perturbations in original space
