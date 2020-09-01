@@ -9,6 +9,7 @@ from scipy.cluster.hierarchy import linkage, to_tree
 from scipy.spatial.distance import cosine
 import loss
 import random
+from numba import jit
 
 # Gestion du mode pytorch CPU/GPU
 from config import Config
@@ -18,16 +19,15 @@ Config.set_device_cpu()
 device = Config.getInstance().device_
 print("Running tensor computations on", device)
 
-OUTFILE = "res/exp_clustering.csv"
+OUTFILE = "res/exp_clustering_sigma.csv"
 with open(OUTFILE, mode="w") as file:
-    file.write("CLS_MOVIE_WEIGHT,N_TRAINING_POINTS,PERTURBATION_RATIO,N_FEATS,PERT_STD,FAILOVER,MAE,MAE_FAILOVER,rob,rob_cold" + '\n')
+    file.write("CLS_MOVIE_WEIGHT,N_TRAINING_POINTS,PERTURBATION_RATIO,sigma,PERT_STD,FAILOVER,MAE,MAE_FAILOVER,k,rob,rob_cold" + '\n')
 
 N_TRAINING_POINTS = 50
 PERT_STD = 1.04 #empiricaly determined from dataset
 MOVIE_IDS = random.sample(range(2000), 10)
 USER_IDS = random.sample(range(610), 10)
 verbose = False
-
 
 def gen_perturbations(pnb, base_user_int, all_actual_ratings, USER_ID, interp_indexes):
     """
@@ -53,7 +53,7 @@ def gen_perturbations(pnb, base_user_int, all_actual_ratings, USER_ID, interp_in
     return pert_int, pert_orr
 
 
-def run_classic(all_actual_ratings_, all_user_predicted_ratings_, s_, v_, PERTURBATION_NB_, USER_ID_, MOVIE_ID_, interp_space_indexes_, cluster_ids_):
+def run_classic(all_actual_ratings_, all_user_predicted_ratings_, s_, v_, PERTURBATION_NB_, USER_ID_, MOVIE_ID_, interp_space_indexes_, cluster_ids_, LIRE_SIGMA=0.3):
     films_nb_ = all_actual_ratings_.shape[1]
     other_movies_ = list(range(all_actual_ratings_.shape[1]))
     other_movies_.remove(MOVIE_ID_)
@@ -78,7 +78,7 @@ def run_classic(all_actual_ratings_, all_user_predicted_ratings_, s_, v_, PERTUR
         model = LinearRecommender(len(interp_space_indexes_))
         local_loss = loss.LocalLossMAE_v3(
             torch.tensor(np.nan_to_num(all_actual_ratings_[USER_ID_]), device=device, dtype=torch.float32),
-            map_fn=lambda _: pert_orr, sigma=0.3)
+            map_fn=lambda _: pert_orr, sigma=LIRE_SIGMA)
 
         train(model, pert_int, y_orr[:, MOVIE_ID], local_loss, 100, verbose=False)
 
@@ -113,7 +113,8 @@ def run_cold(all_actual_ratings_, all_user_predicted_ratings_, s_, v_, PERTURBAT
     return alt, alt.predict(base_user_int.reshape(1, -1))
 
 
-for N_FEATS in [10]:
+N_FEATS = 10
+for lire_sigma in [1,2,4]:
     for pratio in [0., 0.5, 1.0]:
         for cls in [4]:
             CLS_MOVIE_WEIGHT = cls
@@ -167,17 +168,19 @@ for N_FEATS in [10]:
                     else:
                         print("[WARNING] Not Enough points")
 
-                    errors, models = run_classic(all_actual_ratings, all_user_predicted_ratings, s, v, PERTURBATION_NB, USER_ID, MOVIE_ID, interp_space_indexes, cluster_ids)
+                    errors, models = run_classic(all_actual_ratings, all_user_predicted_ratings, s, v, PERTURBATION_NB, USER_ID, MOVIE_ID, interp_space_indexes, cluster_ids, LIRE_SIGMA=lire_sigma)
                     classic_mae = errors[np.argmin(errors)]
 
                     alt_model, gx_ = run_cold(all_actual_ratings, all_user_predicted_ratings, s, v, PERTURBATION_NB, USER_ID, N_FEATS, other_movies, cluster_ids, base_user, base_user != 0.)
                     cold_mae = abs(gx_ - fx)
 
-                    k = 10
+                    # --- Robustness stuff ---
+                    k_indexes = k_neighborhood(np.nan_to_num(all_actual_ratings), USER_ID, 15)
+
                     # Robustness for classic
-                    k_indexes = k_neighborhood(np.nan_to_num(all_actual_ratings), USER_ID, k)
-                    k_points = np.nan_to_num(all_actual_ratings[k_indexes])[:, other_movies]#TODO maybe on all movies ?
-                    k_omega = torch.zeros(k, len(interp_space_indexes))
+                    k_points = np.nan_to_num(all_actual_ratings[k_indexes])[:,
+                               other_movies]  # TODO maybe on all movies ?
+                    k_omega = torch.zeros(15, len(interp_space_indexes))
 
                     for i, neighbor in enumerate(k_indexes):
                         neighbor_cluster_ids = get_user_cluster(neighbor, rootnode, nodelist[neighbor])
@@ -186,14 +189,13 @@ for N_FEATS in [10]:
                         if len(neighbor_cluster_ids) > CLUSTER_NB:
                             neighbor_cluster_ids = random.sample(neighbor_cluster_ids, CLUSTER_NB)
 
-                        neighbor_errors, neighbor_models = run_classic(all_actual_ratings, all_user_predicted_ratings, s, v, PERTURBATION_NB, neighbor, MOVIE_ID, interp_space_indexes, neighbor_cluster_ids)
+                        neighbor_errors, neighbor_models = run_classic(all_actual_ratings, all_user_predicted_ratings,
+                                                                       s, v, PERTURBATION_NB, neighbor, MOVIE_ID,
+                                                                       interp_space_indexes, neighbor_cluster_ids, LIRE_SIGMA=lire_sigma)
                         k_omega[i] = neighbor_models[np.argmin(neighbor_errors)].omega
 
-                    rob_classic = robustness(base_user.detach().numpy(), models[np.argmin(errors)].omega.detach().numpy(), k_points, k_omega.detach().numpy())# Robustness for classic
-
-
-                    #Robustness for cold
-                    k_coefs = np.zeros((k, alt_model.coef_.shape[0]))
+                    # Robustness for cold
+                    """k_coefs = np.zeros((15, alt_model.coef_.shape[0]))
 
                     for i, neighbor in enumerate(k_indexes):
                         neighbor_cluster_ids = get_user_cluster(neighbor, rootnode, nodelist[neighbor])
@@ -202,15 +204,24 @@ for N_FEATS in [10]:
                         if len(neighbor_cluster_ids) > CLUSTER_NB:
                             neighbor_cluster_ids = random.sample(neighbor_cluster_ids, CLUSTER_NB)
 
-                        neighbor_alt_model, neighbor_gx_ = run_cold(all_actual_ratings, all_user_predicted_ratings, s, v, PERTURBATION_NB, neighbor, N_FEATS, other_movies, neighbor_cluster_ids,
-                                                  torch.tensor(np.nan_to_num(all_actual_ratings[neighbor, other_movies]), device=device, dtype=torch.float32), base_user != 0.)
-                        k_coefs[i] = neighbor_alt_model.coef_
+                        neighbor_alt_model, neighbor_gx_ = run_cold(all_actual_ratings, all_user_predicted_ratings,
+                                                                    s, v, PERTURBATION_NB, neighbor, N_FEATS,
+                                                                    other_movies, neighbor_cluster_ids,
+                                                                    torch.tensor(np.nan_to_num(
+                                                                        all_actual_ratings[neighbor, other_movies]),
+                                                                                 device=device,
+                                                                                 dtype=torch.float32),
+                                                                    base_user != 0.)
+                        k_coefs[i] = neighbor_alt_model.coef_"""
 
-                    rob_cold = robustness(base_user.detach().numpy(), alt_model.coef_, k_points, k_coefs)
+                    for k in [5, 10, 15]:
+                        rob_classic = robustness(base_user.detach().numpy(), models[np.argmin(errors)].omega.detach().numpy(), k_points[:k+1], k_omega.detach().numpy()[:k+1])# Robustness for classic
+                        #rob_cold = robustness(base_user.detach().numpy(), alt_model.coef_, k_points[:k+1], k_coefs[:k+1])
+                        rob_cold = 0
 
-                    out = [CLS_MOVIE_WEIGHT, N_TRAINING_POINTS, PERTURBATION_RATIO, N_FEATS, PERT_STD, sum(base_user[reg.coef_ != 0]).item() == 0, classic_mae, cold_mae[0], rob_classic, rob_cold]
-                    out = map(str, out)
-                    out_lines.append(','.join(out) + '\n')
+                        out = [CLS_MOVIE_WEIGHT, N_TRAINING_POINTS, PERTURBATION_RATIO, lire_sigma, PERT_STD, sum(base_user[reg.coef_ != 0]).item() == 0, classic_mae, cold_mae[0], k, rob_classic, rob_cold]
+                        out = map(str, out)
+                        out_lines.append(','.join(out) + '\n')
 
                 with open(OUTFILE, mode="a+") as file:
                     file.writelines(out_lines)

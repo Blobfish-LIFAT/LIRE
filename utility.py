@@ -9,7 +9,7 @@ from scipy.cluster.hierarchy import dendrogram
 
 from math import sqrt, pow
 from numpy.linalg import norm
-
+from numba import jit
 from perturbations import perturbations_gaussian
 
 
@@ -164,6 +164,7 @@ def epsilon_neighborhood_fast(R, uindx, epsilon):
     return np.argwhere(nmask)
 
 
+@jit
 def k_neighborhood(R, uindx, k):
     # base similarity matrix (all dot products)
     # replace this with A.dot(A.T).toarray() for sparse representation
@@ -185,6 +186,7 @@ def k_neighborhood(R, uindx, k):
 
 
 from scipy.spatial.distance import cosine as cosine_dist
+
 def robustness(target, target_expl, neighborhood, neighborhood_expl):
     ratios = []
     for i, neighbor in enumerate(neighborhood):
@@ -210,15 +212,15 @@ if __name__ == '__main__':
     cosine = similarity * inv_mag
     cosine = 1 - (cosine.T * inv_mag)
 
-with open("res/exp_willeme.csv", mode="w") as fout:
-    fout.write("userId;voisins;distances\n")
-    for user in [12, 601, 89, 154, 548, 325, 245, 45, 489, 42, 29, 215]:
+    with open("res/exp_willeme.csv", mode="w") as fout:
+        fout.write("userId;voisins;distances\n")
+        for user in [12, 601, 89, 154, 548, 325, 245, 45, 489, 42, 29, 215]:
 
-        udist = cosine[user]
-        res = list(np.argsort(udist)[:15 + 1])
-        res.remove(user)
-        print("UID", user + 1, sum(R[user]))
-        print(list(map(lambda x : x + 1, res)))
-        print(cosine[user, res])
+            udist = cosine[user]
+            res = list(np.argsort(udist)[:15 + 1])
+            res.remove(user)
+            print("UID", user + 1, sum(R[user]))
+            print(list(map(lambda x : x + 1, res)))
+            print(cosine[user, res])
 
-        fout.write(str(user +1 ) + ";" + str(list(map(lambda x : x + 1, res))) + ";" + str(list(cosine[user, res])) + "\n")
+            fout.write(str(user +1 ) + ";" + str(list(map(lambda x : x + 1, res))) + ";" + str(list(cosine[user, res])) + "\n")
