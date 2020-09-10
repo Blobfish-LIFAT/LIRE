@@ -40,15 +40,16 @@ class LeaderAnt:
         :return: the average distance to cluster "key"
         """
         c = self.clusters.get(key)  # retrieve list of instance index in cluster key
-        it = min(comp, c.shape[0]) # estimating max number of comparisons
+        it = min(comp, len(c)) # estimating max number of comparisons
 
         # list of instances from cluster chosen at random to estimate distance
         subset = np.random.choice(c, it, replace=False)
         i = 0
         dist = 0
+        val = np.array(self.data[ind])
         for elem in subset:
             i += 1
-            dist += m(self.data[elem], self.data[ind])
+            dist += m(np.array(self.data[elem]), val)
         return dist / float(i)
 
     def closest_cluster(self, ind, m, comp):
@@ -84,16 +85,16 @@ class LeaderAnt:
         t = self.init_threshold(m, floor(self.n * iter_training))
 
         # step 3. build the cluster - pass one
-        self.clusters = {0 : np.array([self.order[0]])} # 1st point => 1st cluster
+        self.clusters = {0 : [self.order[0]]} # 1st point => 1st cluster
         cluster_index = 1    # next cluster index to create
         for i in range(1, self.n):
             index, distance = self.closest_cluster(self.order[i], m, comp)
             if distance < t:
                 # add to the closest cluster
-                np.append(self.clusters.get(index), [self.order[i]])
+                self.clusters.get(index).append(self.order[i])
             else:
                 # create a new cluster
-                self.clusters[cluster_index] = np.array([self.order[i]])
+                self.clusters[cluster_index] = [self.order[i]]
                 cluster_index += 1  # ready for the next cluster!
 
         # step 4. (optional) remove small clusters - pass two
@@ -103,7 +104,7 @@ class LeaderAnt:
             reassign = []
             to_pop =[]
             for k in self.clusters.keys():
-                if self.clusters.get(k).shape[0] <= min_size:
+                if len(self.clusters.get(k)) <= min_size:
                     to_pop.append(k)
 
             for k in to_pop:
@@ -118,14 +119,14 @@ class LeaderAnt:
                 # find closest existing cluster
                 k, dist = self.closest_cluster(root, m, comp)
                 # merge indexes with closest cluster
-                self.clusters[k] = np.concatenate(self.clusters.get(k), indexes)
+                self.clusters[k].append(indexes) # = np.concatenate(self.clusters.get(k), indexes)
 
         # End of clustering
 
 
 if __name__ == '__main__':
     from sklearn.datasets import load_iris
-    from scipy.spatial.distance import cosine
+    from scipy.spatial.distance import cosine, euclidean
 
     iris = load_iris()
     X = iris.data
@@ -134,5 +135,5 @@ if __name__ == '__main__':
     la = LeaderAnt(X)
 
     print("Started fit")
-    la.fit(cosine)
+    la.fit(euclidean)   # cosine
     print("Ended fit")
