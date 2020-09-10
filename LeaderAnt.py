@@ -5,6 +5,7 @@ from math import floor
 import numpy as np
 from numpy.random import permutation
 
+
 class LeaderAnt:
 
     def __init__(self, data):
@@ -26,6 +27,7 @@ class LeaderAnt:
             data1 = np.random.randint(0, self.n)
             data2 = np.random.randint(0, self.n)
             dist += m(self.data[data1], self.data[data2])
+            i += 1
         return dist / it
 
     def dist_to_cluster(self, m, key, ind, comp):
@@ -45,8 +47,9 @@ class LeaderAnt:
         i = 0
         dist = 0
         for elem in subset:
+            i += 1
             dist += m(self.data[elem], self.data[ind])
-        return dist / iter
+        return dist / float(i)
 
     def closest_cluster(self, ind, m, comp):
         """
@@ -98,12 +101,17 @@ class LeaderAnt:
             # a. identify and remove small clusters
             min_size = epsilon * self.n
             reassign = []
+            to_pop =[]
             for k in self.clusters.keys():
                 if self.clusters.get(k).shape[0] <= min_size:
-                    indexes = self.clusters.pop(k)
-                    reassign.append(indexes)   # adding instance indexes from cluster k into reassign pool
+                    to_pop.append(k)
 
-            # b. reassign points to existing cluster. Cluster comparison
+            for k in to_pop:
+                # adding instance indexes from cluster k into reassign pool
+                indexes = self.clusters.pop(k)
+                reassign.append(indexes)
+
+                # b. reassign points to existing cluster. Cluster comparison
             # is performed based on first point from each cluster (i.e. its root)
             for indexes in reassign:
                 root = indexes[0]   # retrieve the index of the first point in indexes
@@ -113,3 +121,18 @@ class LeaderAnt:
                 self.clusters[k] = np.concatenate(self.clusters.get(k), indexes)
 
         # End of clustering
+
+
+if __name__ == '__main__':
+    from sklearn.datasets import load_iris
+    from scipy.spatial.distance import cosine
+
+    iris = load_iris()
+    X = iris.data
+    y = iris.target
+
+    la = LeaderAnt(X)
+
+    print("Started fit")
+    la.fit(cosine)
+    print("Ended fit")
