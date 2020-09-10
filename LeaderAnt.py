@@ -56,8 +56,8 @@ class LeaderAnt:
         :return: the key of the closest cluster and the distance to point ind
         """
 
-        closest_cluster = float('inf')
-        best_cluster = -1
+        closest_cluster = float('inf')  # distance
+        best_cluster = -1               # cluster key
         for k in self.clusters.keys():
             d = self.dist_to_cluster(m, k, ind, comp)
             if d < closest_cluster:
@@ -74,13 +74,13 @@ class LeaderAnt:
         :return: set the value of clusters dictionary that indicates for each cluster a list of points assigned to
         this cluster
         """
-        ## step 1. set the order of data instances randomly to simulate a stream
+        # step 1. set the order of data instances randomly to simulate a stream
         self.order = permutation(self.n)
 
-        ## step 2. init distance threshold
+        # step 2. init distance threshold
         t = self.init_threshold(m, floor(self.n * iter_training))
 
-        ## step 3. build the cluster - pass one
+        # step 3. build the cluster - pass one
         self.clusters = {0 : np.array([self.order[0]])} # 1st point => 1st cluster
         cluster_index = 1    # next cluster index to create
         for i in range(1, self.n):
@@ -93,10 +93,23 @@ class LeaderAnt:
                 self.clusters[cluster_index] = np.array([self.order[i]])
                 cluster_index += 1  # ready for the next cluster!
 
-        ## step 4. (optional) remove small clusters - pass two
-        min_size = epsilon * self.n
-        for k in self.clusters.keys():
-            if self.clusters.get(k).shape[0] <= min_size:
-                # todo: remove cluster
-                # todo: reassign points to remaining clusters
-        return 0
+        # step 4. (optional) remove small clusters - pass two
+        if epsilon > 0:
+            # a. identify and remove small clusters
+            min_size = epsilon * self.n
+            reassign = []
+            for k in self.clusters.keys():
+                if self.clusters.get(k).shape[0] <= min_size:
+                    indexes = self.clusters.pop(k)
+                    reassign.append(indexes)   # adding instance indexes from cluster k into reassign pool
+
+            # b. reassign points to existing cluster. Cluster comparison
+            # is performed based on first point from each cluster (i.e. its root)
+            for indexes in reassign:
+                root = indexes[0]   # retrieve the index of the first point in indexes
+                # find closest existing cluster
+                k, dist = self.closest_cluster(root, m, comp)
+                # merge indexes with closest cluster
+                self.clusters[k] = np.concatenate(self.clusters.get(k), indexes)
+
+        # End of clustering
