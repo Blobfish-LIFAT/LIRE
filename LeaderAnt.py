@@ -119,7 +119,7 @@ class LeaderAnt:
                 # find closest existing cluster
                 k, dist = self.closest_cluster(root, m, comp)
                 # merge indexes with closest cluster
-                self.clusters[k].append(indexes) # = np.concatenate(self.clusters.get(k), indexes)
+                self.clusters[k].extend(indexes) # = np.concatenate(self.clusters.get(k), indexes)
 
         # End of clustering
 
