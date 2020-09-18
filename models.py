@@ -82,30 +82,6 @@ def train(model, X, y, loss_criterion, epochs, learning_rate=0.1, verbose=True, 
             print(" | loss", loss.item())
 
 
-# Quick Out of sample prediction for matrix factorization, we try to get the user's vector in the latent space
-# that minimizes the error reconstructing it's ratings
-# TODO -> rewrite for several users and do more test
-def get_OOS_pred(user, s, v, films_nb, epochs=20):
-    # print("  --- --- ---")
-    umean = user.sum(axis=1) / (user != 0.).sum(axis=1)
-    umask = user != 0.
-
-    unew = nn.Parameter(torch.zeros(user.size()[0], s.size()[0], device=user.device, requires_grad=True))
-    opt = optim.Adagrad([unew])
-
-    for epoch in range(epochs):
-        pred = unew @ s @ v + umean.expand(films_nb, user.size()[0]).transpose(0, 1)
-        loss = torch.sum(torch.pow(((user - pred) * umask), 2)) / torch.sum(umask)
-        loss.backward()
-        opt.step()
-        opt.zero_grad()
-        # unew.data -= 0.0007 * unew.grad.data
-        # unew.grad.data.zero_()
-        # if epoch == 0 or epoch % 2 == 0 : print("  ", loss.item())
-
-    return ((unew @ s @ v + umean.expand(films_nb, user.size()[0]).transpose(0, 1)) * (user == 0.) + user).detach()
-
-
 def get_fx(user, s, v, films_nb, epochs=20):
     umean = user.sum() / (user != 0.).sum()
     umask = user != 0.
@@ -146,6 +122,55 @@ def get_OOS_pred_inner(user, s, v, films_nb, epochs=20):
     return ((unew @ s @ v + umean.expand(films_nb - 1, user.size()[0]).transpose(0, 1)) * (user == 0.) + user).detach()
 
 
+# Quick Out of sample prediction for matrix factorization, we try to get the user's vector in the latent space
+# that minimizes the error reconstructing it's ratings
+# TODO -> rewrite for several users and do more test
+def get_OOS_pred(user, s, v, films_nb, epochs=20):
+    # print("  --- --- ---")
+    umean = user.sum(axis=1) / (user != 0.).sum(axis=1)
+    umask = user != 0.
+
+    unew = nn.Parameter(torch.zeros(user.size()[0], s.size()[0], device=user.device, requires_grad=True))
+    opt = optim.Adagrad([unew])
+
+    for epoch in range(epochs):
+        pred = unew @ s @ v + umean.expand(films_nb, user.size()[0]).transpose(0, 1)
+        loss = torch.sum(torch.pow(((user - pred) * umask), 2)) / torch.sum(umask)
+        loss.backward()
+        opt.step()
+        opt.zero_grad()
+        # unew.data -= 0.0007 * unew.grad.data
+        # unew.grad.data.zero_()
+        # if epoch == 0 or epoch % 2 == 0 : print("  ", loss.item())
+
+    return ((unew @ s @ v + umean.expand(films_nb, user.size()[0]).transpose(0, 1)) * (user == 0.) + user).detach()
+
+
 if __name__ == '__main__':
-    omega = np.ones((1, 3))*0.1
-    print(linear_recommender(omega, 3, np.array([[4, 3.2, 8]])))
+    from utility import svd_black_box
+    U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = svd_black_box()
+    print("films", films_nb)
+
+    from scipy.optimize import least_squares
+
+    for i in range(250, 300):
+        # Actual ratings
+        test = np.nan_to_num(all_actual_ratings[i])
+
+        def prepare(perturbation):
+            def pred_fn(user_vec_lat):
+                umean = user_vec_lat.sum() / (user_vec_lat != 0.).sum()
+                umask = perturbation != 0.
+                pred = (user_vec_lat @ sigma @ Vt) + umean
+                return (perturbation - pred) * umask
+            return pred_fn
+
+        res = least_squares(prepare(test), np.ones(20))
+        #print(res)
+        #print(U[50])
+        moy = test.sum() / (test != 0.).sum()
+        real_pred = (U[i] @ sigma @ Vt) + moy
+        ls_pred = (res.x @ sigma @ Vt) + moy
+        print("mae least_squares", np.average(np.abs(real_pred - ls_pred)))
+
+
