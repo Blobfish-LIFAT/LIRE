@@ -35,7 +35,7 @@ PERT_STD = 1.04 #empiricaly determined from dataset
 #MOVIE_IDS = random.sample(range(2000), 10)
 #USER_IDS = random.sample(range(610), 10)
 
-def oos_predictor(perturbation, U, sigma, Vt):
+def oos_predictor(perturbation, sigma, Vt):
     def prepare(perturbation):
         """
         construct residual computation for least square optimization
@@ -55,13 +55,12 @@ def oos_predictor(perturbation, U, sigma, Vt):
 
         return pred_fn
 
-    res = least_squares(prepare(test), np.ones(sigma.shape[0])) # latent space dimension
+    res = least_squares(prepare(perturbation), np.ones(sigma.shape[0])) # latent space dimension
 
-    moy = test.sum() / (test != 0.).sum()
+    moy = perturbation.sum() / (perturbation != 0.).sum()
 
     return (res.x @ sigma @ Vt) + moy
-    # print("mae least_squares", np.average(np.abs(real_pred - ls_pred)))
-    # real_pred = (U[i] @ sigma @ Vt) + moy
+
 
 ## code
 if __name__ == '__main__':
@@ -78,30 +77,40 @@ if __name__ == '__main__':
         sigma = np.loadtxt("sigma.gz")
         Vt = np.loadtxt("Vt.gz")
         all_user_predicted_ratings = np.loadtxt("all_ratings.gz")
+        labels = np.loadtxt("labels.gz")
+
     else:
-        # loading and setting matrices
+        # 1. loading and setting data matrices
         U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, \
             movies_df, ratings_df, films_nb = load_data()
+
+        if VERBOSE: print("films", films_nb)
+
         # saving matrices
         np.savetxt("U.gz", U)
         np.savetxt("sigma.gz", sigma)
         np.savetxt("Vt.gz", Vt)
         np.savetxt("all_ratings.gz", all_user_predicted_ratings)
 
-    if VERBOSE: print("films", films_nb)
+        ## 2. Determining neighborhood as a clustering problem
+        reducer = umap.UMAP(n_components=3, n_neighbors=20, random_state=12)  # metric='cosine'
+        embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
 
-    ## 2. Determining neighborhood as a clustering problem
-    reducer = umap.UMAP(n_components=3, n_neighbors=20, random_state=12)    # metric='cosine'
-    embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
+        ## 3. Clustering
+        clusterer = hdbscan.HDBSCAN()
+        clusterer.fit(embedding)
+        labels = clusterer.labels_
+        np.savetxt("labels.gz")
 
-    ## 3. Clustering
-    clusterer = hdbscan.HDBSCAN()
-    clusterer.fit(embedding)
-    labels = clusterer.labels_
-    np.savetxt("labels.gz")
+        # visualization of neighborhood
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.scatter(embedding[:, 0], embedding[:, 1], embedding[:, 2],
+                   c=[sns.color_palette("RdBu", n_colors=max(clusterer.labels_) - 1)[x] for x in labels])
 
-    # visualization of neighborhood
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(embedding[:, 0], embedding[:, 1], embedding[:, 2],
-               c=[sns.color_palette("RdBu", n_colors=max(clusterer.labels_)-1)[x] for x in labels])
+    ### In all cases, explanation starts here
+
+
+
+
+    ## 4.
