@@ -156,7 +156,7 @@ if __name__ == '__main__':
     from utility import read_sparse
     if not ("all_actual_ratings" in locals() or "all_actual_ratings" in globals()):
         all_actual_ratings = read_sparse("./ml-latest-small/ratings.csv")
-    reducer = umap.UMAP(n_components=3, n_neighbors=20, random_state=12)  # metric='cosine'
+    reducer = reducer = umap.UMAP(n_components=3, n_neighbors=30, random_state=12, min_dist=0.0001)    # metric='cosine'
     embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
 
     print("Running clustering")
