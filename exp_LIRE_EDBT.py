@@ -61,6 +61,39 @@ def oos_predictor(perturbation, sigma, Vt):
 
     return (res.x @ sigma @ Vt) + moy
 
+def perturbations_gaussian(ux, fake_users: int, std=2, proba=0.1):
+    nb_dim = ux.size()[0]
+    users = np.tile(ux, (fake_users, nb_dim))
+
+    noise = np.random.normal(0,std, (fake_users, nb_dim))
+    rd_mask = np.random.binomial(1, proba, (fake_users, nb_dim))
+    noise = noise * rd_mask * (users != 0.)
+    users = users + noise
+    # users[users > 5.] = 5. #seems to introduce detrimental bias in the training set
+    return np.max(users, 0.)
+
+
+def explain(user_id, item_id, U, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5):
+    """
+
+    :param user_id: user for which an explanation is expected
+    :param item_id: item for which an explanation is expected
+    :param U:
+    :param sigma:
+    :param Vt:
+    :param all_user_ratings:
+    :param cluster_labels:
+    :param train_set_size: size of the train set (perturbation + neighbors from clusters) to train local surrogate
+    :param pert_ratio: perturbation ratio
+    :return:
+    """
+
+    # 1. Generate a train set for local surrogate model
+    pert_nb = int(train_set_size * pert_ratio)
+    cluster_nb = train_set_size - pert_nb
+
+
+
 
 ## code
 if __name__ == '__main__':
@@ -71,7 +104,7 @@ if __name__ == '__main__':
 
     # 1. Loading data and setting all matrices
     if os.path.isfile("U.gz") and os.path.isfile("sigma.gz") and os.path.isfile("Vt.gz") \
-            and os.path.isfile("all_ratings.gz"):
+            and os.path.isfile("all_ratings.gz") and os.path.isfile("labels.gz"):
         # loading pre-computed matrices
         U = np.loadtxt("U.gz")
         sigma = np.loadtxt("sigma.gz")
@@ -109,8 +142,5 @@ if __name__ == '__main__':
                    c=[sns.color_palette("RdBu", n_colors=max(clusterer.labels_) - 1)[x] for x in labels])
 
     ### In all cases, explanation starts here
-
-
-
 
     ## 4.
