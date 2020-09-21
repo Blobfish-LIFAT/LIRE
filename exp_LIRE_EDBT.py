@@ -25,6 +25,7 @@ from scipy.optimize import least_squares
 import hdbscan
 import seaborn as sns
 import matplotlib.pyplot as plt
+from sklearn import linear_model
 
 ## constants
 VERBOSE = False
@@ -73,26 +74,49 @@ def perturbations_gaussian(ux, fake_users: int, std=2, proba=0.1):
     return np.max(users, 0.)
 
 
-def explain(user_id, item_id, U, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5):
+def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5):
     """
 
     :param user_id: user for which an explanation is expected
     :param item_id: item for which an explanation is expected
-    :param U:
-    :param sigma:
-    :param Vt:
-    :param all_user_ratings:
-    :param cluster_labels:
+    :param n_coeff: number of coefficients for the explanation
+    :param sigma: intensity of latent factors
+    :param Vt: item latent space
+    :param all_user_ratings: matrix containing all predicted user ratings
+    :param cluster_labels: vector indicating for each user its cluster label
     :param train_set_size: size of the train set (perturbation + neighbors from clusters) to train local surrogate
     :param pert_ratio: perturbation ratio
-    :return:
+    :return: a vector representing
     """
 
     # 1. Generate a train set for local surrogate model
-    pert_nb = int(train_set_size * pert_ratio)
-    cluster_nb = train_set_size - pert_nb
+    X_train = np.array()
+    y_train = np.array()
 
+    # todo: remove item_id from the user vector !!!
 
+    pert_nb = int(train_set_size * pert_ratio)      # nb of perturbed entries
+    cluster_nb = train_set_size - pert_nb           # nb of real neighbors
+
+    if pert_nb > 0:                                 # generate perturbed training set part
+        # generate perturbed users
+        X_train = perturbations_gaussian(all_user_ratings[user_id],pert_nb)
+        ## do the oos prediction
+        for p in X_train:
+            np.append(y_train, oos_predictor(p, sigma, Vt))
+
+    if cluster_nb > 0:                              # generate neighbors training set part
+        cluster_index = cluster_labels[user_id]             # retrieve the cluster index of user "user_id"
+        neighbors_index = np.where(cluster_labels == cluster_index)
+        neighbors_index = np.random.choice(neighbors_index, cluster_nb)
+        np.append(X_train, all_user_ratings[neighbors_index])   # todo: remove item_id from the user vector !!!
+        np.append(y_train, all_user_ratings[neighbors_index,item_id])
+
+    # 2. Now run a LARS linear regression model on the train set to generate the most parcimonious explanation
+    reg = linear_model.Lars(n_nonzero_coefs= n_coeff)
+    reg.fit()               # todo add here the training set, check the format
+    return reg.coef_        # todo: check that the intercept is not in the set of coeff
+                            # as it is not related to an item feature
 
 
 ## code
