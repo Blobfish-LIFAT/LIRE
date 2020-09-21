@@ -63,16 +63,17 @@ def oos_predictor(perturbation, sigma, Vt):
 
     return (res.x @ sigma @ Vt) + moy
 
-def perturbations_gaussian(ux, fake_users: int, std=2, proba=0.1):
-    nb_dim = ux.size()[0]
-    users = np.tile(ux, (fake_users, nb_dim))
+def perturbations_gaussian(original_user, fake_users: int, std=2, proba=0.1):
+    ux = original_user.toarray()# Comes from a scipy sparse matrix
+    nb_dim = ux.shape[1]
+    users = np.tile(ux, (fake_users, 1))
 
-    noise = np.random.normal(0,std, (fake_users, nb_dim))
+    noise = np.random.normal(0, std, (fake_users, nb_dim))
     rd_mask = np.random.binomial(1, proba, (fake_users, nb_dim))
     noise = noise * rd_mask * (users != 0.)
     users = users + noise
     # users[users > 5.] = 5. #seems to introduce detrimental bias in the training set
-    return np.max(users, 0.)
+    return np.clip(users, 0., None)
 
 
 def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5):
@@ -171,6 +172,10 @@ if __name__ == '__main__':
     ax.scatter(embedding[:, 0], embedding[:, 1], embedding[:, 2],
                c=[sns.color_palette("husl", max(labels) + 2)[x] for x in labels])
     plt.show()
-    ### In all cases, explanation starts here
 
+
+    ### In all cases, explanation starts here
     ## 4.
+    uid = 42
+    iid = 69
+    explain(uid, iid, 10, sigma, Vt, all_actual_ratings, labels, 50, 0.05)
