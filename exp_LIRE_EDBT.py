@@ -20,11 +20,12 @@
 import numpy as np
 import os.path
 import umap
-from utility import load_data
+from utility import load_data as load_data
 from scipy.optimize import least_squares
 import hdbscan
 import seaborn as sns
 import matplotlib.pyplot as plt
+import pandas as pd
 from sklearn import linear_model
 
 ## constants
@@ -90,8 +91,8 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labe
     """
 
     # 1. Generate a train set for local surrogate model
-    X_train = np.array()
-    y_train = np.array()
+    X_train = np.empty(0)
+    y_train = np.empty(0)
 
     # todo: remove item_id from the user vector !!!
 
@@ -114,7 +115,7 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labe
 
     # 2. Now run a LARS linear regression model on the train set to generate the most parcimonious explanation
     reg = linear_model.Lars(n_nonzero_coefs= n_coeff)
-    reg.fit()               # todo add here the training set, check the format
+    reg.fit(X_train, y_train)               # todo add here the training set, check the format
     return reg.coef_        # todo: check that the intercept is not in the set of coeff
                             # as it is not related to an item feature
 
@@ -149,22 +150,27 @@ if __name__ == '__main__':
         np.savetxt("Vt.gz", Vt)
         np.savetxt("all_ratings.gz", all_user_predicted_ratings)
 
-        ## 2. Determining neighborhood as a clustering problem
-        reducer = umap.UMAP(n_components=3, n_neighbors=20, random_state=12)  # metric='cosine'
-        embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
+    print("Running UMAP")
+    ## 2. Determining neighborhood as a clustering problem
+    from utility import read_sparse
+    if not ("all_actual_ratings" in locals() or "all_actual_ratings" in globals()):
+        all_actual_ratings = read_sparse("./ml-latest-small/ratings.csv")
+    reducer = umap.UMAP(n_components=3, n_neighbors=20, random_state=12)  # metric='cosine'
+    embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
 
-        ## 3. Clustering
-        clusterer = hdbscan.HDBSCAN()
-        clusterer.fit(embedding)
-        labels = clusterer.labels_
-        np.savetxt("labels.gz")
+    print("Running clustering")
+    ## 3. Clustering
+    clusterer = hdbscan.HDBSCAN()
+    clusterer.fit(embedding)
+    labels = clusterer.labels_
+    np.savetxt("labels.gz", labels)
 
-        # visualization of neighborhood
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-        ax.scatter(embedding[:, 0], embedding[:, 1], embedding[:, 2],
-                   c=[sns.color_palette("RdBu", n_colors=max(clusterer.labels_) - 1)[x] for x in labels])
-
+    # visualization of neighborhood
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(embedding[:, 0], embedding[:, 1], embedding[:, 2],
+               c=[sns.color_palette("husl", max(labels) + 2)[x] for x in labels])
+    plt.show()
     ### In all cases, explanation starts here
 
     ## 4.

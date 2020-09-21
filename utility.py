@@ -44,7 +44,7 @@ def load_data_small():
     return U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb
 
 
-def load_data():
+def load_data(k=20):
     ratings_df = pd.read_csv("./ml-latest-small/ratings.csv")
     movies_df = pd.read_csv("./ml-latest-small/movies.csv")
 
@@ -58,7 +58,7 @@ def load_data():
     R_demeaned = R_df.sub(R_df.mean(axis=1), axis=0)
     R_demeaned = coo_matrix(R_demeaned.fillna(0).values)
 
-    U, sigma, Vt = svds(R_demeaned, k=20)
+    U, sigma, Vt = svds(R_demeaned, k=k)
     sigma = np.diag(sigma)
     all_user_predicted_ratings = np.dot(np.dot(U, sigma), Vt) + users_mean.reshape(-1, 1)
 
@@ -68,6 +68,33 @@ def load_data():
 
     return U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb
 
+
+from scipy.sparse import coo_matrix, csr_matrix
+def read_sparse(rfile):
+    indptr = [0]
+    indices = []
+    data = []
+    vocabulary = {}
+
+    curr_id = 1
+
+    with open(rfile) as f:
+        skip = 1
+        for l in f:
+            if skip:
+                skip -= 1
+                continue
+
+            l = l.split(",")
+            if int(l[0]) != curr_id:
+                # new user
+                indptr.append(len(indices))
+                curr_id = int(l[0])
+            index = vocabulary.setdefault(int(l[1]), len(vocabulary))
+            indices.append(index)
+            data.append(float(l[2]))
+        indptr.append(len(indices)) # one last time
+    return csr_matrix((data, indices, indptr), dtype=float)
 
 def plot_dendrogram(model, **kwargs):
     # Create linkage matrix and then plot the dendrogram
@@ -195,12 +222,28 @@ def robustness(target, target_expl, neighborhood, neighborhood_expl):
     return max(ratios)
 
 
+from surprise import SVD
+from surprise import Dataset
+
+class SparseDataset(Dataset):
+
+    def __init__(self, path):
+        self.sm = read_sparse(path)
+
+    def construct_trainset(self, raw_trainset):
+        return super().construct_trainset(raw_trainset)
+
+
 if __name__ == '__main__':
 
-    U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data()
+    test = read_sparse("./ml-latest-small/ratings.csv")
+    print(type(test), test.shape)
+
+
+"""
+    U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data(k=2)
 
     R = np.nan_to_num(all_actual_ratings)
-
     similarity = np.dot(R, R.T)
     # inverse squared magnitude
     inv_square_mag = 1 / np.diag(similarity)
@@ -224,3 +267,4 @@ if __name__ == '__main__':
             print(cosine[user, res])
 
             fout.write(str(user +1 ) + ";" + str(list(map(lambda x : x + 1, res))) + ";" + str(list(cosine[user, res])) + "\n")
+"""
