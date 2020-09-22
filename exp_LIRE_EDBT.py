@@ -92,8 +92,8 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labe
     """
 
     # 1. Generate a train set for local surrogate model
-    X_train = np.empty(0)
-    y_train = np.empty(0)
+    X_train = np.empty((0, Vt.shape[1]))
+    y_train = np.empty((0, Vt.shape[1]))
 
     # todo: remove item_id from the user vector !!!
 
@@ -109,7 +109,7 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labe
 
     if cluster_nb > 0:                              # generate neighbors training set part
         cluster_index = cluster_labels[user_id]             # retrieve the cluster index of user "user_id"
-        neighbors_index = np.where(cluster_labels == cluster_index)
+        neighbors_index = np.where(cluster_labels == cluster_index)[0]
         neighbors_index = np.random.choice(neighbors_index, cluster_nb)
         np.append(X_train, all_user_ratings[neighbors_index])   # todo: remove item_id from the user vector !!!
         np.append(y_train, all_user_ratings[neighbors_index,item_id])
@@ -178,4 +178,5 @@ if __name__ == '__main__':
     ## 4.
     uid = 42
     iid = 69
-    explain(uid, iid, 10, sigma, Vt, all_actual_ratings, labels, 50, 0.05)
+    coefs = explain(uid, iid, 10, sigma, Vt, all_actual_ratings, labels, 50, 0.05)
+    print(coefs)
