@@ -120,8 +120,19 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labe
     reg = linear_model.Lars(fit_intercept=True, n_nonzero_coefs= n_coeff)
     reg.fit(X_train, y_train)
     # todo: check item_id to explain is 0
-    return reg.coef_
+    return reg.coef_       # todo: check that in all cases reg.coef_.length is equal to # items + 1
 
+
+def robustness(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5):
+    base_exp = explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
+
+    # get user_id cluster neighbors
+    cluster_index = cluster_labels[user_id]  # retrieve the cluster index of user "user_id"
+    neighbors_index = np.where(cluster_labels == cluster_index)[0]  # todo: check [0]
+
+    # todo: add here computation of robustness based on cluster neighbors
+
+    pass
 
 ## code
 if __name__ == '__main__':
