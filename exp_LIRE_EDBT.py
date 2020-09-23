@@ -29,6 +29,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn import linear_model
+from sklearn.metrics import mean_absolute_error
 
 ## constants
 VERBOSE = False
@@ -137,7 +138,7 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labe
     reg = linear_model.Lars(fit_intercept=True, n_nonzero_coefs= n_coeff)
     reg.fit(X_train, y_train)
     # todo: check item_id to explain is 0 CHECKED
-    return reg.coef_       # todo: check that in all cases reg.coef_.length is equal to # items + 1
+    return reg.coef_ , mean_absolute_error(reg.predict(X_train),y_train)       # todo: check that in all cases reg.coef_.length is equal to # items + 1
 
 
 def robustness(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5):
@@ -208,5 +209,6 @@ if __name__ == '__main__':
     ## 4.
     uid = 42
     iid = 69
-    coefs = explain(uid, iid, 10, sigma, Vt, all_actual_ratings, labels, 50, 0.05)
+    coefs,mae = explain(uid, iid, 10, sigma, Vt, all_actual_ratings, labels, 50, 0.05)
     print(np.where(coefs >0))
+    print("mae = ",mae)
