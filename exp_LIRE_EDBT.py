@@ -33,9 +33,9 @@ VERBOSE = False
 F_LATENT_FACTORS = 10
 DIM_UMAP = 3            # number of dimensions after UMAP reduction
 N_TRAINING_POINTS = 50
-PERT_STD = 1.04 #empiricaly determined from dataset
-#MOVIE_IDS = random.sample(range(2000), 10)
-#USER_IDS = random.sample(range(610), 10)
+PERT_STD = 1.04 # empiricaly determined from dataset
+# MOVIE_IDS = random.sample(range(2000), 10)
+# USER_IDS = random.sample(range(610), 10)
 
 def oos_predictor(perturbation, sigma, Vt):
     def prepare(perturbation):
@@ -92,33 +92,35 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labe
     """
 
     # 1. Generate a train set for local surrogate model
-    X_train = np.empty((0, Vt.shape[1]))
-    y_train = np.empty((0, Vt.shape[1]))
-
-    # todo: remove item_id from the user vector !!!
+    X_train = np.zeros((train_set_size, Vt.shape[1]))   # 2D array
+    y_train = np.zeros(train_set_size)                  # 1D array
 
     pert_nb = int(train_set_size * pert_ratio)      # nb of perturbed entries
     cluster_nb = train_set_size - pert_nb           # nb of real neighbors
 
     if pert_nb > 0:                                 # generate perturbed training set part
         # generate perturbed users
-        X_train = perturbations_gaussian(all_user_ratings[user_id],pert_nb)
+        X_train[0:pert_nb, :] = perturbations_gaussian(all_user_ratings[user_id], pert_nb)
+        X_train[0:pert_nb, item_id] = 0     # todo: check if correct
         ## do the oos prediction
-        for p in X_train:
-            np.append(y_train, oos_predictor(p, sigma, Vt))
+        for i in range(pert_nb):
+            y_train[i] = oos_predictor(X_train[i], sigma, Vt)
 
-    if cluster_nb > 0:                              # generate neighbors training set part
-        cluster_index = cluster_labels[user_id]             # retrieve the cluster index of user "user_id"
-        neighbors_index = np.where(cluster_labels == cluster_index)[0]
+    if cluster_nb > 0:                                          # generate neighbors training set part
+        cluster_index = cluster_labels[user_id]                 # retrieve the cluster index of user "user_id"
+        neighbors_index = np.where(cluster_labels == cluster_index)[0]      # todo: check [0]
         neighbors_index = np.random.choice(neighbors_index, cluster_nb)
-        np.append(X_train, all_user_ratings[neighbors_index])   # todo: remove item_id from the user vector !!!
-        np.append(y_train, all_user_ratings[neighbors_index,item_id])
+
+        X_train[pert_nb:train_set_size, :] = all_user_ratings[neighbors_index]
+        X_train[pert_nb:train_set_size, item_id] = 0  # todo: check if correct
+
+        y_train[pert_nb:train_set_size] = all_user_ratings[neighbors_index, item_id]
 
     # 2. Now run a LARS linear regression model on the train set to generate the most parcimonious explanation
-    reg = linear_model.Lars(n_nonzero_coefs= n_coeff)
-    reg.fit(X_train, y_train)               # todo add here the training set, check the format
-    return reg.coef_        # todo: check that the intercept is not in the set of coeff
-                            # as it is not related to an item feature
+    reg = linear_model.Lars(fit_intercept=True, n_nonzero_coefs= n_coeff)
+    reg.fit(X_train, y_train)
+    # todo: check item_id to explain is 0
+    return reg.coef_
 
 
 ## code
