@@ -29,6 +29,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn import linear_model
+from scipy.spatial.distance import cosine as cosine_dist
 
 ## constants
 VERBOSE = False
@@ -140,16 +141,27 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labe
     return reg.coef_       # todo: check that in all cases reg.coef_.length is equal to # items + 1
 
 
-def robustness(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5):
+def robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5, k_neighbors=15):
+
     base_exp = explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
 
     # get user_id cluster neighbors
     cluster_index = cluster_labels[user_id]  # retrieve the cluster index of user "user_id"
-    neighbors_index = np.where(cluster_labels == cluster_index)[0]  # todo: check [0]
+    neighbors_index = np.where(cluster_labels == cluster_index)[0]
+    neighbors_index = np.random.choice(neighbors_index, k_neighbors)
 
-    # todo: add here computation of robustness based on cluster neighbors
+    # robustness
+    robustness = np.zeros(15)
 
+    cpt = 0
+    for id in neighbors_index:
+        exp_id = explain(id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
+        robustness[cpt] = cosine_dist(exp_id, base_exp) / cosine_dist(all_user_ratings[user_id], all_user_ratings[id])
+        cpt = cpt + 1
+        # todo: check if we should use all_user_ratings or all_user_predicted_ratings
+    return np.max(robustness)
     pass
+
 
 ## code
 if __name__ == '__main__':
