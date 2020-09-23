@@ -21,8 +21,10 @@ import numpy as np
 import os.path
 import umap
 from utility import load_data as load_data
+from utility import load_data_small as load_data_small
 from scipy.optimize import least_squares
 import hdbscan
+import scipy
 import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -64,9 +66,14 @@ def oos_predictor(perturbation, sigma, Vt):
     return (res.x @ sigma @ Vt) + moy
 
 def perturbations_gaussian(original_user, fake_users: int, std=2, proba=0.1):
-    ux = original_user.toarray()# Comes from a scipy sparse matrix
-    nb_dim = ux.shape[1]
-    users = np.tile(ux, (fake_users, 1))
+
+    if(isinstance(original_user,scipy.sparse.csr.csr_matrix)):
+        original_user = original_user.toarray()
+    else:
+        original_user = original_user.reshape(1,len(original_user))
+    # Comes from a scipy sparse matrix
+    nb_dim = original_user.shape[1]
+    users = np.tile(original_user, (fake_users, 1))
 
     noise = np.random.normal(0, std, (fake_users, nb_dim))
     rd_mask = np.random.binomial(1, proba, (fake_users, nb_dim))
@@ -90,6 +97,12 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labe
     :param pert_ratio: perturbation ratio
     :return: a vector representing
     """
+    #print(type(all_user_ratings))
+    #t = isinstance(all_user_ratings,scipy.sparse.csr.csr_matrix)
+    if(isinstance(all_user_ratings,scipy.sparse.csr.csr_matrix)):
+        all_user_ratings = all_user_ratings.toarray()
+    else:
+        all_user_ratings = np.nan_to_num(all_user_ratings)
 
     # 1. Generate a train set for local surrogate model
     X_train = np.zeros((train_set_size, Vt.shape[1]))   # 2D array
@@ -97,29 +110,33 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labe
 
     pert_nb = int(train_set_size * pert_ratio)      # nb of perturbed entries
     cluster_nb = train_set_size - pert_nb           # nb of real neighbors
-
     if pert_nb > 0:                                 # generate perturbed training set part
         # generate perturbed users
         X_train[0:pert_nb, :] = perturbations_gaussian(all_user_ratings[user_id], pert_nb)
-        X_train[0:pert_nb, item_id] = 0     # todo: check if correct
+        X_train[0:pert_nb, item_id] = 0
+        # todo: check if correct CHECKED
         ## do the oos prediction
         for i in range(pert_nb):
-            y_train[i] = oos_predictor(X_train[i], sigma, Vt)
+            y_train[i] = oos_predictor(X_train[i], sigma, Vt)[item_id]
 
-    if cluster_nb > 0:                                          # generate neighbors training set part
-        cluster_index = cluster_labels[user_id]                 # retrieve the cluster index of user "user_id"
-        neighbors_index = np.where(cluster_labels == cluster_index)[0]      # todo: check [0]
+    if cluster_nb > 0:
+        # generate neighbors training set part
+        cluster_index = cluster_labels[user_id]
+        # retrieve the cluster index of user "user_id"
+        neighbors_index = np.where(cluster_labels == cluster_index)[0]
+        # todo: check [0] CHECKED
         neighbors_index = np.random.choice(neighbors_index, cluster_nb)
-
-        X_train[pert_nb:train_set_size, :] = all_user_ratings[neighbors_index]
-        X_train[pert_nb:train_set_size, item_id] = 0  # todo: check if correct
+        t = all_user_ratings[neighbors_index, :]
+        X_train[pert_nb:train_set_size, :] = all_user_ratings[neighbors_index,:]
+        X_train[pert_nb:train_set_size, item_id] = 0
+        # todo: check if correct => CHECKED
 
         y_train[pert_nb:train_set_size] = all_user_ratings[neighbors_index, item_id]
 
     # 2. Now run a LARS linear regression model on the train set to generate the most parcimonious explanation
     reg = linear_model.Lars(fit_intercept=True, n_nonzero_coefs= n_coeff)
     reg.fit(X_train, y_train)
-    # todo: check item_id to explain is 0
+    # todo: check item_id to explain is 0 CHECKED
     return reg.coef_       # todo: check that in all cases reg.coef_.length is equal to # items + 1
 
 
@@ -167,7 +184,7 @@ if __name__ == '__main__':
     print("Running UMAP")
     ## 2. Determining neighborhood as a clustering problem
     from utility import read_sparse
-    if not ("all_actual_ratings" in locals() or "all_actual_ratings" in globals()):
+    if not ("all_actual_ratings" in locals() or "aln_coeffl_actual_ratings" in globals()):
         all_actual_ratings = read_sparse("./ml-latest-small/ratings.csv")
     reducer = reducer = umap.UMAP(n_components=3, n_neighbors=30, random_state=12, min_dist=0.0001)    # metric='cosine'
     embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
@@ -192,4 +209,4 @@ if __name__ == '__main__':
     uid = 42
     iid = 69
     coefs = explain(uid, iid, 10, sigma, Vt, all_actual_ratings, labels, 50, 0.05)
-    print(coefs)
+    print(np.where(coefs >0))
