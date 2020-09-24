@@ -158,10 +158,53 @@ def robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, clu
         exp_id = explain(id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
         robustness[cpt] = cosine_dist(exp_id, base_exp) / cosine_dist(all_user_ratings[user_id], all_user_ratings[id])
         cpt = cpt + 1
-        # todo: check if we should use all_user_ratings or all_user_predicted_ratings
-    return np.max(robustness)
-    pass
 
+    return np.max(robustness)
+
+def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
+                         all_user_ratings, cluster_labels, train_set_size,
+                         pert_ratio=0.5, k_neighbors=[5, 10, 15]):
+
+    base_exp = explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
+    max_neighbors = np.max(k_neighbors)
+    # get user_id cluster neighbors
+    cluster_index = cluster_labels[user_id]  # retrieve the cluster index of user "user_id"
+    neighbors_index = np.where(cluster_labels == cluster_index)[0]
+    neighbors_index = np.random.choice(neighbors_index, max_neighbors)      # look for max # of neighbors
+
+    # objective is now to compute several robustness score for different values of k in k-NN
+    dist_to_neighbors = {}      # structure to sort neighbors based on their increasing distance to user_id
+    rob_to_neighbors = {}       # structure that contain the local "robustness" score of each neighbor to user_id
+    for id in neighbors_index:
+        exp_id = explain(id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
+        dist_to_neighbors[id] = cosine_dist(all_user_ratings[user_id], all_user_ratings[id])
+        rob_to_neighbors[id] = cosine_dist(exp_id, base_exp) / dist_to_neighbors[id]
+
+    # sort dict values by preserving key-value relation
+    sorted_dict = {k: v for k, v in sorted(dist_to_neighbors.items(), key=lambda item: item[1])}
+    # todo: finish code here !
+    cpt = 0
+    index = 0
+    for key in sorted_dict.keys():
+        cpt +=1
+        if cpt == k_neighbors[index]:
+
+
+
+    #return np.max(robustness)
+
+def experiment(training_set_sizer=[50, 100, 150, 200], pratio=[0., 0.5, 1.0]):
+    """
+    Run the first experiment that consists in choosing randomly users and items and each time providing the robustness
+    of explanation and its complexity in terms of number of non-zero features
+    Parameters of the experiment are:
+    :param training_set_sizes: different training set sizes to learn surrogate models
+    :param pratio: different perturbation ratio in training set, modulate # of perturbed points vs # of cluster points
+    :param k_neighbors: different number of neighbors to compute robustness
+    :return:
+    """
+
+    pass
 
 ## code
 if __name__ == '__main__':
@@ -196,7 +239,7 @@ if __name__ == '__main__':
     print("Running UMAP")
     ## 2. Determining neighborhood as a clustering problem
     from utility import read_sparse
-    if not ("all_actual_ratings" in locals() or "aln_coeffl_actual_ratings" in globals()):
+    if not ("all_actual_ratings" in locals() or "all_actual_ratings" in globals()):
         all_actual_ratings = read_sparse("./ml-latest-small/ratings.csv")
     reducer = reducer = umap.UMAP(n_components=3, n_neighbors=30, random_state=12, min_dist=0.0001)    # metric='cosine'
     embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
