@@ -135,7 +135,7 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labe
         y_train[pert_nb:train_set_size] = all_user_ratings[neighbors_index, item_id]
 
     # 2. Now run a LARS linear regression model on the train set to generate the most parcimonious explanation
-    reg = linear_model.Lars(fit_intercept=True, n_nonzero_coefs= n_coeff)
+    reg = linear_model.Lars(fit_intercept=False, n_nonzero_coefs=n_coeff)
     reg.fit(X_train, y_train)
     # todo: check item_id to explain is 0 CHECKED
     return reg.coef_       # todo: check that in all cases reg.coef_.length is equal to # items + 1
@@ -177,7 +177,10 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
     rob_to_neighbors = {}       # structure that contain the local "robustness" score of each neighbor to user_id
     for id in neighbors_index:
         exp_id = explain(id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
-        dist_to_neighbors[id] = cosine_dist(all_user_ratings[user_id], all_user_ratings[id])
+        if (isinstance(all_user_ratings, scipy.sparse.csr._cs_matrix)):
+            dist_to_neighbors[id] = cosine_dist(all_user_ratings[user_id].toarray(), all_user_ratings[id].toarray())
+        else:
+            dist_to_neighbors[id] = cosine_dist(all_user_ratings[user_id], all_user_ratings[id])
         rob_to_neighbors[id] = cosine_dist(exp_id, base_exp) / dist_to_neighbors[id]
 
     # sort dict values by preserving key-value relation
@@ -227,7 +230,7 @@ def exp_check_UMAP(users, items, n_coeff, sigma, Vt, all_user_ratings, cluster_l
     for n_dim in n_dim_UMAP:
         for n_neighbor in n_neighbors_UMAP:
             # UMAP
-            reducer = reducer = umap.UMAP(n_components=n_dim, n_neighbors=n_neighbor, random_state=12,
+            reducer = umap.UMAP(n_components=n_dim, n_neighbors=n_neighbor, random_state=12,
                                           min_dist=0.0001)  # metric='cosine'
             embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
 
@@ -248,7 +251,7 @@ def exp_check_UMAP(users, items, n_coeff, sigma, Vt, all_user_ratings, cluster_l
 
 
 
-def experiment(training_set_sizes=[50, 100, 150, 200], pratio=[0., 0.5, 1.0], k_neighbors=[5,10,15], n_dim_UMAP=[3, 5, 10]):
+def experiment(U, sigma, Vt, labels, all_actual_ratings, training_set_sizes=[50, 100, 150, 200], pratio=[0., 0.5, 1.0], k_neighbors=[5,10,15], n_dim_UMAP=[3, 5, 10]):
     """
     Run the first experiment that consists in choosing randomly users and items and each time providing the robustness
     of explanation and its complexity in terms of number of non-zero features
@@ -260,57 +263,21 @@ def experiment(training_set_sizes=[50, 100, 150, 200], pratio=[0., 0.5, 1.0], k_
     :return:
     """
 
-    for train in training_set_sizes:
-        for pr in pratio:
+    MOVIE_IDS = np.random.choice(range(Vt.shape[1]), 10)
+    USER_IDS = np.random.choice(range(U.shape[0]), 10)
+
+    for movie_id in MOVIE_IDS:
+        print("[Progress] Movie", movie_id)
+        for user_id in USER_IDS:
+            print("[Progress] User", user_id)
+            for train in training_set_sizes:
+                for pr in pratio:
+                    res = robustness_score_tab(user_id, movie_id, 10, sigma, Vt, all_actual_ratings, labels, train, pert_ratio=pr, k_neighbors=k_neighbors)
+                    out = [user_id, movie_id, train, pr, res]
+                    print(out) #TODO check csv writer for file output
 
 
-    pass
-
-## code
-if __name__ == '__main__':
-    U = None
-    sigma = None
-    Vt = None
-    all_user_predicted_ratings = None
-
-    # 1. Loading data and setting all matrices
-    if os.path.isfile("U.gz") and os.path.isfile("sigma.gz") and os.path.isfile("Vt.gz") \
-            and os.path.isfile("all_ratings.gz") and os.path.isfile("labels.gz"):
-        # loading pre-computed matrices
-        U = np.loadtxt("U.gz")
-        sigma = np.loadtxt("sigma.gz")
-        Vt = np.loadtxt("Vt.gz")
-        all_user_predicted_ratings = np.loadtxt("all_ratings.gz")
-        labels = np.loadtxt("labels.gz")
-
-    else:
-        # 1. loading and setting data matrices
-        U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, \
-            movies_df, ratings_df, films_nb = load_data()
-
-        if VERBOSE: print("films", films_nb)
-
-        # saving matrices
-        np.savetxt("U.gz", U)
-        np.savetxt("sigma.gz", sigma)
-        np.savetxt("Vt.gz", Vt)
-        np.savetxt("all_ratings.gz", all_user_predicted_ratings)
-
-    print("Running UMAP")
-    ## 2. Determining neighborhood as a clustering problem
-    from utility import read_sparse
-    if not ("all_actual_ratings" in locals() or "all_actual_ratings" in globals()):
-        all_actual_ratings = read_sparse("./ml-latest-small/ratings.csv")
-    reducer = reducer = umap.UMAP(n_components=3, n_neighbors=30, random_state=12, min_dist=0.0001)    # metric='cosine'
-    embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
-
-    print("Running clustering")
-    ## 3. Clustering
-    clusterer = hdbscan.HDBSCAN()
-    clusterer.fit(embedding)
-    labels = clusterer.labels_
-    np.savetxt("labels.gz", labels)
-
+def old_main():
     # visualization of neighborhood
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
@@ -324,4 +291,60 @@ if __name__ == '__main__':
     uid = 42
     iid = 69
     coefs = explain(uid, iid, 10, sigma, Vt, all_actual_ratings, labels, 50, 0.05)
-    print(np.where(coefs >0))
+    print(np.where(coefs > 0))
+
+
+## code
+if __name__ == '__main__':
+    U = None
+    sigma = None
+    Vt = None
+    all_user_predicted_ratings = None
+
+    # 1. Loading data and setting all matrices
+    if os.path.isfile("U.gz") and os.path.isfile("sigma.gz") and os.path.isfile("Vt.gz") \
+            and os.path.isfile("all_ratings.gz") and os.path.isfile("labels.gz"):
+        print("-- LOAD MODE ---")
+        # loading pre-computed matrices
+        U = np.loadtxt("U.gz")
+        sigma = np.loadtxt("sigma.gz")
+        Vt = np.loadtxt("Vt.gz")
+        all_user_predicted_ratings = np.loadtxt("all_ratings.gz")
+        labels = np.loadtxt("labels.gz")
+        films_nb = Vt.shape[1]
+        if films_nb < 10000:
+            print("[WARNING] Using 100K SMALL dataset !")
+
+    else:
+        print('--- COMPUTE MODE ---')
+        # 1. loading and setting data matrices
+        U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, \
+        movies_df, ratings_df, films_nb = load_data()
+
+        if VERBOSE: print("films", films_nb)
+        if films_nb < 10000:
+            print("[WARNING] Using 100K SMALL dataset !")
+
+        # saving matrices
+        np.savetxt("U.gz", U)
+        np.savetxt("sigma.gz", sigma)
+        np.savetxt("Vt.gz", Vt)
+        np.savetxt("all_ratings.gz", all_user_predicted_ratings)
+        reducer = umap.UMAP(n_components=3, n_neighbors=30, random_state=12,
+                                      min_dist=0.0001)  # metric='cosine'
+        embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
+
+        print("Running clustering")
+        ## 3. Clustering
+        clusterer = hdbscan.HDBSCAN()
+        clusterer.fit(embedding)
+        labels = clusterer.labels_
+        np.savetxt("labels.gz", labels)
+
+    ## 2. Determining neighborhood as a clustering problem
+    from utility import read_sparse
+    if not ("all_actual_ratings" in locals() or "all_actual_ratings" in globals()):
+        all_actual_ratings = read_sparse("./ml-latest-small/ratings.csv")
+
+
+    experiment(U, sigma, Vt, labels, all_actual_ratings)
