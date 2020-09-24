@@ -205,7 +205,50 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
 
     return res
 
-def experiment(training_set_sizer=[50, 100, 150, 200], pratio=[0., 0.5, 1.0]):
+def exp_check_UMAP(users, items, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size=50,
+                   n_dim_UMAP=[3, 5, 10], n_neighbors_UMAP=[10, 30, 50], pert_ratio=0.5, k_neighbors=10):
+    """
+    Run test to evaluate the sensitivity of our method to UMAP dimensionality reduction
+    :param users: numpy array of user ids
+    :param items: numpy array of item ids
+    :param n_coeff: number of coefficients of interpretable features for the explanation
+    :param sigma: influence of each latent dimension
+    :param Vt: latent item space
+    :param all_user_ratings: initial rating matrix
+    :param cluster_labels: user clustering, defines neighborhood
+    :param train_set_size: number of training instance to learn surrogate model
+    :param n_dim_UMAP: numpy array of reducted number of dimensions
+    :param n_neighbors_UMAP: numpy array of number of neighbors to preserve local topology in UMAP
+    :param training_set_size:
+    :param pert_ratio:
+    :param k_neighbors:
+    :return:
+    """
+    for n_dim in n_dim_UMAP:
+        for n_neighbor in n_neighbors_UMAP:
+            # UMAP
+            reducer = reducer = umap.UMAP(n_components=n_dim, n_neighbors=n_neighbor, random_state=12,
+                                          min_dist=0.0001)  # metric='cosine'
+            embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
+
+            # clustering
+            clusterer = hdbscan.HDBSCAN()
+            clusterer.fit(embedding)
+            labels = clusterer.labels_
+            np.savetxt("labels_" + str(n_dim) + "_" + str(n_neighbor) +".gz", labels)   # personalize output filename
+
+            # robustness measure
+            for user_id in users:
+                for item_id in items:
+                    # todo : save in a file somewhere, which format?
+                    robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings,
+                                     cluster_labels, train_set_size, pert_ratio, k_neighbors)
+
+
+
+
+
+def experiment(training_set_sizes=[50, 100, 150, 200], pratio=[0., 0.5, 1.0], k_neighbors=[5,10,15], n_dim_UMAP=[3, 5, 10]):
     """
     Run the first experiment that consists in choosing randomly users and items and each time providing the robustness
     of explanation and its complexity in terms of number of non-zero features
@@ -213,8 +256,13 @@ def experiment(training_set_sizer=[50, 100, 150, 200], pratio=[0., 0.5, 1.0]):
     :param training_set_sizes: different training set sizes to learn surrogate models
     :param pratio: different perturbation ratio in training set, modulate # of perturbed points vs # of cluster points
     :param k_neighbors: different number of neighbors to compute robustness
+    :param n_dim_UMAP: size of projected space for UMAP
     :return:
     """
+
+    for train in training_set_sizes:
+        for pr in pratio:
+
 
     pass
 
