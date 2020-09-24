@@ -181,17 +181,29 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
         rob_to_neighbors[id] = cosine_dist(exp_id, base_exp) / dist_to_neighbors[id]
 
     # sort dict values by preserving key-value relation
-    sorted_dict = {k: v for k, v in sorted(dist_to_neighbors.items(), key=lambda item: item[1])}
-    # todo: finish code here !
+    sorted_dict = {k: v for k, v in sorted(dist_to_neighbors.items(), key=lambda item: item[1])} # need Python 3.6
+
+    sorted_dist = np.zeros(max_neighbors)       # all sorted distances to user_id
+    sorted_rob = np.zeros(max_neighbors)        # all robustness to user_id explanation corresponding
+                                                # to sorted distance value
+                                                # at index i, sorted_dist contains the i+1th distance to user_id
+                                                # that corresponds to id = key
+                                                # in this case, sorted_rob[i] contains robustness of id = key
+
     cpt = 0
-    index = 0
-    for key in sorted_dict.keys():
-        cpt +=1
-        if cpt == k_neighbors[index]:
+    for key in sorted_dict.keys():              # todo: check that keys respect the order of elements in dict
+        sorted_dist[cpt] = sorted_dict[key]
+        sorted_rob[cpt] = rob_to_neighbors[key]
+        cpt += 1
 
+    # finally, we compute the max(rob)@5,10,15 or any number of neighbors specified in k_neigbors
+    res = np.empty(len(k_neighbors))
+    cpt = 0
+    for k in k_neighbors:
+        res[cpt] = np.max(sorted_rob[0:k])
+        cpt += 1
 
-
-    #return np.max(robustness)
+    return res
 
 def experiment(training_set_sizer=[50, 100, 150, 200], pratio=[0., 0.5, 1.0]):
     """
