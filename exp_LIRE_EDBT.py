@@ -85,7 +85,11 @@ def perturbations_gaussian(original_user, fake_users: int, std=2, proba=0.1):
     return np.clip(users, 0., None)
 
 
-def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5):
+def make_black_box_slice(U, sigma, Vt, means, indexes):
+    return (U[indexes] @ sigma @ Vt) + np.tile(means[indexes].reshape(50, 1), (1, Vt.shape[1]))
+
+
+def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5):
     """
 
     :param user_id: user for which an explanation is expected
@@ -133,7 +137,8 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labe
         X_train[pert_nb:train_set_size, item_id] = 0
         # todo: check if correct => CHECKED
 
-        y_train[pert_nb:train_set_size] = all_user_ratings[neighbors_index, item_id]
+        predictor_slice = make_black_box_slice(U, sigma, Vt, user_means, neighbors_index)
+        y_train[pert_nb:train_set_size] = predictor_slice[:, item_id]
 
     # 2. Now run a LARS linear regression model on the train set to generate the most parcimonious explanation
     reg = linear_model.Lars(fit_intercept=False, n_nonzero_coefs=n_coeff)
@@ -144,7 +149,7 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labe
 
 def robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5, k_neighbors=15):
 
-    base_exp = explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
+    base_exp = explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
 
     # get user_id cluster neighbors
     cluster_index = cluster_labels[user_id]  # retrieve the cluster index of user "user_id"
@@ -156,7 +161,7 @@ def robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, clu
 
     cpt = 0
     for id in neighbors_index:
-        exp_id = explain(id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
+        exp_id = explain(id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
         robustness[cpt] = cosine_dist(exp_id, base_exp) / cosine_dist(all_user_ratings[user_id], all_user_ratings[id])
         cpt = cpt + 1
 
@@ -166,24 +171,26 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
                          all_user_ratings, cluster_labels, train_set_size,
                          pert_ratio=0.5, k_neighbors=[5, 10, 15]):
 
-    base_exp = explain(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
+    base_exp = explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
     max_neighbors = np.max(k_neighbors)
     # get user_id cluster neighbors
     cluster_index = cluster_labels[user_id]  # retrieve the cluster index of user "user_id"
-    neighbors_index = np.where(cluster_labels == cluster_index)[0]#todo remove user from this !
+    neighbors_index = np.where(cluster_labels == cluster_index)[0]
+    neighbors_index = neighbors_index[neighbors_index != user_id]
     neighbors_index = np.random.choice(neighbors_index, max_neighbors)      # look for max # of neighbors
-    if user_id in neighbors_index:
-        print("Warning !!!")
+
     # objective is now to compute several robustness score for different values of k in k-NN
     dist_to_neighbors = {}      # structure to sort neighbors based on their increasing distance to user_id
     rob_to_neighbors = {}       # structure that contain the local "robustness" score of each neighbor to user_id
     for id in neighbors_index:
-        exp_id = explain(id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
+        exp_id = explain(id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
         if (isinstance(all_user_ratings, scipy.sparse.csr._cs_matrix)):
             dist_to_neighbors[id] = cosine_dist(np.nan_to_num(all_user_ratings[user_id].toarray()), np.nan_to_num(all_user_ratings[id].toarray()))
         else:
             dist_to_neighbors[id] = cosine_dist(np.nan_to_num(all_user_ratings[user_id]), np.nan_to_num(all_user_ratings[id]))
         rob_to_neighbors[id] = cosine_dist(exp_id, base_exp) / dist_to_neighbors[id]
+        if np.isnan(cosine_dist(exp_id, base_exp)):
+            print('error')
 
     # sort dict values by preserving key-value relation
     sorted_dict = {k: v for k, v in sorted(dist_to_neighbors.items(), key=lambda item: item[1])} # need Python 3.6
@@ -205,7 +212,6 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
     res = np.empty(len(k_neighbors))
     cpt = 0
     for k in k_neighbors:
-        print("DEBUG", sorted_rob)
         res[cpt] = np.max(sorted_rob[0:k])
         cpt += 1
 
@@ -254,7 +260,7 @@ def exp_check_UMAP(users, items, n_coeff, sigma, Vt, all_user_ratings, cluster_l
 
 
 
-def experiment(U, sigma, Vt, labels, all_actual_ratings, training_set_sizes=[50, 100, 150, 200], pratio=[0., 0.5, 1.0], k_neighbors=[5,10,15], n_dim_UMAP=[3, 5, 10]):
+def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_set_sizes=[50, 100, 150, 200], pratio=[0., 0.5, 1.0], k_neighbors=[5,10,15], n_dim_UMAP=[3, 5, 10]):
     """
     Run the first experiment that consists in choosing randomly users and items and each time providing the robustness
     of explanation and its complexity in terms of number of non-zero features
@@ -314,7 +320,7 @@ if __name__ == '__main__':
 
     # 1. Loading data and setting all matrices
     if os.path.isfile("U.gz") and os.path.isfile("sigma.gz") and os.path.isfile("Vt.gz") \
-            and os.path.isfile("all_ratings.gz") and os.path.isfile("labels.gz"):
+            and os.path.isfile("all_ratings.gz") and os.path.isfile("labels.gz") and os.path.isfile('user_means.gz'):
         print("-- LOAD MODE ---")
         # loading pre-computed matrices
         U = np.loadtxt("U.gz")
@@ -325,12 +331,14 @@ if __name__ == '__main__':
         films_nb = Vt.shape[1]
         if films_nb < 10000:
             print("[WARNING] Using 100K SMALL dataset !")
+        user_means = np.loadtxt('user_means.gz')
 
     else:
         print('--- COMPUTE MODE ---')
         # 1. loading and setting data matrices
         U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, \
         movies_df, ratings_df, films_nb = load_data()
+        user_means = np.nanmean(all_actual_ratings, axis=1)
 
         if VERBOSE: print("films", films_nb)
         if films_nb < 10000:
@@ -340,6 +348,7 @@ if __name__ == '__main__':
         np.savetxt("U.gz", U)
         np.savetxt("sigma.gz", sigma)
         np.savetxt("Vt.gz", Vt)
+        np.savetxt('user_means.gz', user_means)
         np.savetxt("all_ratings.gz", all_user_predicted_ratings)
         reducer = umap.UMAP(n_components=3, n_neighbors=30, random_state=12,
                                       min_dist=0.0001)  # metric='cosine'
@@ -358,4 +367,4 @@ if __name__ == '__main__':
         all_actual_ratings = read_sparse("./ml-latest-small/ratings.csv")
 
 
-    experiment(U, sigma, Vt, labels, all_actual_ratings)
+    experiment(U, sigma, Vt, user_means, labels, all_actual_ratings)
