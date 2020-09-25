@@ -170,18 +170,19 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
     max_neighbors = np.max(k_neighbors)
     # get user_id cluster neighbors
     cluster_index = cluster_labels[user_id]  # retrieve the cluster index of user "user_id"
-    neighbors_index = np.where(cluster_labels == cluster_index)[0]
+    neighbors_index = np.where(cluster_labels == cluster_index)[0]#todo remove user from this !
     neighbors_index = np.random.choice(neighbors_index, max_neighbors)      # look for max # of neighbors
-
+    if user_id in neighbors_index:
+        print("Warning !!!")
     # objective is now to compute several robustness score for different values of k in k-NN
     dist_to_neighbors = {}      # structure to sort neighbors based on their increasing distance to user_id
     rob_to_neighbors = {}       # structure that contain the local "robustness" score of each neighbor to user_id
     for id in neighbors_index:
         exp_id = explain(id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
         if (isinstance(all_user_ratings, scipy.sparse.csr._cs_matrix)):
-            dist_to_neighbors[id] = cosine_dist(all_user_ratings[user_id].toarray(), all_user_ratings[id].toarray())
+            dist_to_neighbors[id] = cosine_dist(np.nan_to_num(all_user_ratings[user_id].toarray()), np.nan_to_num(all_user_ratings[id].toarray()))
         else:
-            dist_to_neighbors[id] = cosine_dist(all_user_ratings[user_id], all_user_ratings[id])
+            dist_to_neighbors[id] = cosine_dist(np.nan_to_num(all_user_ratings[user_id]), np.nan_to_num(all_user_ratings[id]))
         rob_to_neighbors[id] = cosine_dist(exp_id, base_exp) / dist_to_neighbors[id]
 
     # sort dict values by preserving key-value relation
@@ -204,6 +205,7 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
     res = np.empty(len(k_neighbors))
     cpt = 0
     for k in k_neighbors:
+        print("DEBUG", sorted_rob)
         res[cpt] = np.max(sorted_rob[0:k])
         cpt += 1
 
