@@ -86,7 +86,7 @@ def perturbations_gaussian(original_user, fake_users: int, std=2, proba=0.1):
 
 
 def make_black_box_slice(U, sigma, Vt, means, indexes):
-    return (U[indexes] @ sigma @ Vt) + np.tile(means[indexes].reshape(50, 1), (1, Vt.shape[1]))
+    return (U[indexes] @ sigma @ Vt) + np.tile(means[indexes].reshape(len(indexes), 1), (1, Vt.shape[1]))
 
 
 def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5):
