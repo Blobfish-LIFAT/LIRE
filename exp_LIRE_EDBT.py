@@ -39,6 +39,7 @@ N_TRAINING_POINTS = 50
 PERT_STD = 1.04 # empiricaly determined from dataset
 # MOVIE_IDS = random.sample(range(2000), 10)
 # USER_IDS = random.sample(range(610), 10)
+OUTFILE = "res/exp_edbt_test.csv"
 
 def oos_predictor(perturbation, sigma, Vt):
     def prepare(perturbation):
@@ -266,15 +267,23 @@ def experiment(U, sigma, Vt, labels, all_actual_ratings, training_set_sizes=[50,
     MOVIE_IDS = np.random.choice(range(Vt.shape[1]), 10)
     USER_IDS = np.random.choice(range(U.shape[0]), 10)
 
+    with open(OUTFILE, mode="w") as file:
+        file.write('uid,iid,train_size,pert_ratio,robustness\n')
+
     for movie_id in MOVIE_IDS:
         print("[Progress] Movie", movie_id)
         for user_id in USER_IDS:
             print("[Progress] User", user_id)
+            out_lines = []
             for train in training_set_sizes:
                 for pr in pratio:
                     res = robustness_score_tab(user_id, movie_id, 10, sigma, Vt, all_actual_ratings, labels, train, pert_ratio=pr, k_neighbors=k_neighbors)
                     out = [user_id, movie_id, train, pr, res]
                     print(out) #TODO check csv writer for file output
+                    out_lines.append(",".join(map(str, out)))
+            with open(OUTFILE, mode="a+") as file:
+                file.writelines(out_lines)
+                out_lines.clear()
 
 
 def old_main():
