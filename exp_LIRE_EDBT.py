@@ -130,12 +130,12 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, 
         cluster_index = cluster_labels[user_id]
         # retrieve the cluster index of user "user_id"
         neighbors_index = np.where(cluster_labels == cluster_index)[0]
-        # todo: check [0] CHECKED
+        neighbors_index = neighbors_index[neighbors_index != user_id]
         neighbors_index = np.random.choice(neighbors_index, cluster_nb)
         t = all_user_ratings[neighbors_index, :]
         X_train[pert_nb:train_set_size, :] = all_user_ratings[neighbors_index,:]
         X_train[pert_nb:train_set_size, item_id] = 0
-        # todo: check if correct => CHECKED
+        # todo: NEW check if correct
 
         predictor_slice = make_black_box_slice(U, sigma, Vt, user_means, neighbors_index)
         y_train[pert_nb:train_set_size] = predictor_slice[:, item_id]
@@ -154,6 +154,7 @@ def robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, clu
     # get user_id cluster neighbors
     cluster_index = cluster_labels[user_id]  # retrieve the cluster index of user "user_id"
     neighbors_index = np.where(cluster_labels == cluster_index)[0]
+    neighbors_index = neighbors_index[neighbors_index != user_id]
     neighbors_index = np.random.choice(neighbors_index, k_neighbors)
 
     # robustness
