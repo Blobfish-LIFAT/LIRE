@@ -153,7 +153,7 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, 
     y_predictor_slice = make_black_box_slice(U, sigma, Vt, user_means, np.array([user_id]))
     y_predictor_slice = y_predictor_slice.transpose()[item_id]
     # todo: absolute error
-    return reg.coef_, abs(pred - y_predictor_slice)     # todo: check that in all cases reg.coef_.length is equal to # items + 1
+    return reg.coef_, abs(pred - y_predictor_slice)[0]     # todo: check that in all cases reg.coef_.length is equal to # items + 1
 
 
 def robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5, k_neighbors=15):
