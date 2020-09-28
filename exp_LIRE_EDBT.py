@@ -144,12 +144,21 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, 
     reg = linear_model.Lars(fit_intercept=False, n_nonzero_coefs=n_coeff)
     reg.fit(X_train, y_train)
     # todo: check item_id to explain is 0 CHECKED
-    return reg.coef_       # todo: check that in all cases reg.coef_.length is equal to # items + 1
+
+    #
+    X_user_id = all_user_ratings[user_id]
+    X_user_id[item_id] = 0
+    pred = reg.predict(X_user_id.reshape(1, -1))
+
+    y_predictor_slice = make_black_box_slice(U, sigma, Vt, user_means, np.array([user_id]))
+    y_predictor_slice = y_predictor_slice.transpose()[item_id]
+    # todo: absolute error
+    return reg.coef_, abs(pred - y_predictor_slice)     # todo: check that in all cases reg.coef_.length is equal to # items + 1
 
 
 def robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5, k_neighbors=15):
 
-    base_exp = explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
+    base_exp, mae = explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
 
     # get user_id cluster neighbors
     cluster_index = cluster_labels[user_id]  # retrieve the cluster index of user "user_id"
@@ -162,17 +171,18 @@ def robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, clu
 
     cpt = 0
     for id in neighbors_index:
-        exp_id = explain(id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
+        # todo: here we can retrieve the absolute error on neighbors
+        exp_id, _ = explain(id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
         robustness[cpt] = cosine_dist(exp_id, base_exp) / cosine_dist(all_user_ratings[user_id], all_user_ratings[id])
         cpt = cpt + 1
 
-    return np.max(robustness)
+    return np.max(robustness), mae
 
 def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
                          all_user_ratings, cluster_labels, train_set_size,
                          pert_ratio=0.5, k_neighbors=[5, 10, 15]):
 
-    base_exp = explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
+    base_exp, mae = explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
     max_neighbors = np.max(k_neighbors)
     # get user_id cluster neighbors
     cluster_index = cluster_labels[user_id]  # retrieve the cluster index of user "user_id"
@@ -184,7 +194,8 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
     dist_to_neighbors = {}      # structure to sort neighbors based on their increasing distance to user_id
     rob_to_neighbors = {}       # structure that contain the local "robustness" score of each neighbor to user_id
     for id in neighbors_index:
-        exp_id = explain(id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
+        # todo: here we can retrieve the absolute error on neighbors
+        exp_id, _ = explain(id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
         if (isinstance(all_user_ratings, scipy.sparse.csr._cs_matrix)):
             dist_to_neighbors[id] = cosine_dist(np.nan_to_num(all_user_ratings[user_id].toarray()), np.nan_to_num(all_user_ratings[id].toarray()))
         else:
@@ -204,7 +215,7 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
                                                 # in this case, sorted_rob[i] contains robustness of id = key
 
     cpt = 0
-    for key in sorted_dict.keys():              # todo: check that keys respect the order of elements in dict
+    for key in sorted_dict.keys():              # checked! Keys respect the order of elements in dict
         sorted_dist[cpt] = sorted_dict[key]
         sorted_rob[cpt] = rob_to_neighbors[key]
         cpt += 1
@@ -216,7 +227,7 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
         res[cpt] = np.max(sorted_rob[0:k])
         cpt += 1
 
-    return res
+    return res, mae
 
 def exp_check_UMAP(users, items, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size=50,
                    n_dim_UMAP=[3, 5, 10], n_neighbors_UMAP=[10, 30, 50], pert_ratio=0.5, k_neighbors=10):
@@ -257,10 +268,6 @@ def exp_check_UMAP(users, items, n_coeff, sigma, Vt, all_user_ratings, cluster_l
                     robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings,
                                      cluster_labels, train_set_size, pert_ratio, k_neighbors)
 
-
-
-
-
 def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_set_sizes=[50, 100, 150, 200], pratio=[0., 0.5, 1.0], k_neighbors=[5,10,15], n_dim_UMAP=[3, 5, 10]):
     """
     Run the first experiment that consists in choosing randomly users and items and each time providing the robustness
@@ -277,7 +284,7 @@ def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_se
     USER_IDS = np.random.choice(range(U.shape[0]), 10)
 
     with open(OUTFILE, mode="w") as file:
-        file.write('uid,iid,train_size,pert_ratio,robustness\n')
+        file.write('uid,iid,train_size,pert_ratio,robustness,mae\n')
 
     for movie_id in MOVIE_IDS:
         print("[Progress] Movie", movie_id)
@@ -286,9 +293,9 @@ def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_se
             out_lines = []
             for train in training_set_sizes:
                 for pr in pratio:
-                    res = robustness_score_tab(user_id, movie_id, 10, sigma, Vt, all_actual_ratings, labels, train, pert_ratio=pr, k_neighbors=k_neighbors)
-                    out = [user_id, movie_id, train, pr, res]
-                    print(out) #TODO check csv writer for file output
+                    res, mae = robustness_score_tab(user_id, movie_id, 10, sigma, Vt, all_actual_ratings, labels, train, pert_ratio=pr, k_neighbors=k_neighbors)
+                    out = [user_id, movie_id, train, pr, res, mae]
+                    print(out) # TODO: check csv writer for file output
                     out_lines.append(",".join(map(str, out)))
             with open(OUTFILE, mode="a+") as file:
                 file.writelines(out_lines)
