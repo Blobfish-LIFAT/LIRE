@@ -166,6 +166,8 @@ def robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, clu
     neighbors_index = neighbors_index[neighbors_index != user_id]
     neighbors_index = np.random.choice(neighbors_index, k_neighbors)
 
+    # todo: check => added a distance to all neighbors table to use in LIME-RS robustness computation
+    dist_to_neighbors = np.zeros(np.shape(neighbors_index))
     # robustness
     robustness = np.zeros(15)
 
@@ -173,10 +175,14 @@ def robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, clu
     for id in neighbors_index:
         # todo: here we can retrieve the absolute error on neighbors
         exp_id, _ = explain(id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
-        robustness[cpt] = cosine_dist(exp_id, base_exp) / cosine_dist(all_user_ratings[user_id], all_user_ratings[id])
+        # todo: check => added distance into buffer
+        dist_to_neighbors[cpt] = cosine_dist(all_user_ratings[user_id], all_user_ratings[id])
+        robustness[cpt] = cosine_dist(exp_id, base_exp) / dist_to_neighbors[cpt]
         cpt = cpt + 1
 
-    return np.max(robustness), mae
+        # todo: export
+
+    return np.max(robustness), mae, neighbors_index, dist_to_neighbors
 
 def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
                          all_user_ratings, cluster_labels, train_set_size,
@@ -227,7 +233,8 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
         res[cpt] = np.max(sorted_rob[0:k])
         cpt += 1
 
-    return res, mae
+    # todo : check output
+    return res, mae, sorted_dict.keys(), sorted_dist
 
 def exp_check_UMAP(users, items, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size=50,
                    n_dim_UMAP=[3, 5, 10], n_neighbors_UMAP=[10, 30, 50], pert_ratio=0.5, k_neighbors=10):
@@ -293,7 +300,8 @@ def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_se
             out_lines = []
             for train in training_set_sizes:
                 for pr in pratio:
-                    res, mae = robustness_score_tab(user_id, movie_id, 10, sigma, Vt, all_actual_ratings, labels, train, pert_ratio=pr, k_neighbors=k_neighbors)
+                    # todo: check => retrieve neighbors and dist_to_neigbors and save them into output file
+                    res, mae, neighbors, dist_to_neighbors = robustness_score_tab(user_id, movie_id, 10, sigma, Vt, all_actual_ratings, labels, train, pert_ratio=pr, k_neighbors=k_neighbors)
                     out = [user_id, movie_id, train, pr, res, mae]
                     print(out) # TODO: check csv writer for file output
                     out_lines.append(",".join(map(str, out)))
