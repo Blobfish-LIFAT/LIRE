@@ -1,1 +1,3 @@
 *.gz
+exp_*\.csv
+test.py

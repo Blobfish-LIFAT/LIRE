@@ -21,15 +21,14 @@ import numpy as np
 import os.path
 import umap
 from utility import load_data as load_data
-from utility import load_data_small as load_data_small
 from scipy.optimize import least_squares
 import hdbscan
 import scipy
 import seaborn as sns
 import matplotlib.pyplot as plt
-import pandas as pd
 from sklearn import linear_model
 from scipy.spatial.distance import cosine as cosine_dist
+
 
 ## constants
 VERBOSE = False
@@ -37,9 +36,8 @@ F_LATENT_FACTORS = 10
 DIM_UMAP = 3            # number of dimensions after UMAP reduction
 N_TRAINING_POINTS = 50
 PERT_STD = 1.04 # empiricaly determined from dataset
-# MOVIE_IDS = random.sample(range(2000), 10)
-# USER_IDS = random.sample(range(610), 10)
 OUTFILE = "res/exp_edbt_test.csv"
+
 
 def oos_predictor(perturbation, sigma, Vt):
     def prepare(perturbation):
@@ -66,6 +64,7 @@ def oos_predictor(perturbation, sigma, Vt):
     moy = perturbation.sum() / (perturbation != 0.).sum()
 
     return (res.x @ sigma @ Vt) + moy
+
 
 def perturbations_gaussian(original_user, fake_users: int, std=2, proba=0.1):
 
@@ -103,8 +102,7 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, 
     :param pert_ratio: perturbation ratio
     :return: a vector representing
     """
-    #print(type(all_user_ratings))
-    #t = isinstance(all_user_ratings,scipy.sparse.csr.csr_matrix)
+
     if(isinstance(all_user_ratings,scipy.sparse.csr.csr_matrix)):
         all_user_ratings = all_user_ratings.toarray()
     else:
@@ -219,7 +217,6 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
                                                 # at index i, sorted_dist contains the i+1th distance to user_id
                                                 # that corresponds to id = key
                                                 # in this case, sorted_rob[i] contains robustness of id = key
-
     cpt = 0
     for key in sorted_dict.keys():              # checked! Keys respect the order of elements in dict
         sorted_dist[cpt] = sorted_dict[key]
@@ -235,6 +232,7 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
 
     # todo : check output
     return res, mae, sorted_dict.keys(), sorted_dist
+
 
 def exp_check_UMAP(users, items, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size=50,
                    n_dim_UMAP=[3, 5, 10], n_neighbors_UMAP=[10, 30, 50], pert_ratio=0.5, k_neighbors=10):
@@ -275,6 +273,7 @@ def exp_check_UMAP(users, items, n_coeff, sigma, Vt, all_user_ratings, cluster_l
                     robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings,
                                      cluster_labels, train_set_size, pert_ratio, k_neighbors)
 
+
 def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_set_sizes=[100], pratio=[0., 0.5, 1.0], k_neighbors=[5,10,15], n_dim_UMAP=[3, 5, 10]):
     """
     Run the first experiment that consists in choosing randomly users and items and each time providing the robustness
@@ -312,24 +311,6 @@ def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_se
                 out_lines.clear()
 
 
-def old_main():
-    # visualization of neighborhood
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(embedding[:, 0], embedding[:, 1], embedding[:, 2],
-               c=[sns.color_palette("husl", max(labels) + 2)[x] for x in labels])
-    plt.show()
-
-
-    ### In all cases, explanation starts here
-    ## 4.
-    uid = 42
-    iid = 69
-    coefs = explain(uid, iid, 10, sigma, Vt, all_actual_ratings, labels, 50, 0.05)
-    print(np.where(coefs > 0))
-
-
-## code
 if __name__ == '__main__':
     U = None
     sigma = None
