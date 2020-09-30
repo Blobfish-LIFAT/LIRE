@@ -275,7 +275,7 @@ def exp_check_UMAP(users, items, n_coeff, sigma, Vt, all_user_ratings, cluster_l
                     robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings,
                                      cluster_labels, train_set_size, pert_ratio, k_neighbors)
 
-def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_set_sizes=[50, 100, 150, 200], pratio=[0., 0.5, 1.0], k_neighbors=[5,10,15], n_dim_UMAP=[3, 5, 10]):
+def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_set_sizes=[100], pratio=[0., 0.5, 1.0], k_neighbors=[5,10,15], n_dim_UMAP=[3, 5, 10]):
     """
     Run the first experiment that consists in choosing randomly users and items and each time providing the robustness
     of explanation and its complexity in terms of number of non-zero features
@@ -291,7 +291,7 @@ def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_se
     USER_IDS = np.random.choice(range(U.shape[0]), 10)
 
     with open(OUTFILE, mode="w") as file:
-        file.write('uid,iid,train_size,pert_ratio,robustness,mae\n')
+        file.write('uid,iid,train_size,pert_ratio,'+",".join(["robustness_" + str(k) for k in k_neighbors])+',mae,neighbors,dist_to_neigh\n')
 
     for movie_id in MOVIE_IDS:
         print("[Progress] Movie", movie_id)
@@ -302,9 +302,11 @@ def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_se
                 for pr in pratio:
                     # todo: check => retrieve neighbors and dist_to_neigbors and save them into output file
                     res, mae, neighbors, dist_to_neighbors = robustness_score_tab(user_id, movie_id, 10, sigma, Vt, all_actual_ratings, labels, train, pert_ratio=pr, k_neighbors=k_neighbors)
-                    out = [user_id, movie_id, train, pr, res, mae]
+                    out = [user_id, movie_id, train, pr]
+                    out.extend([r for r in res])
+                    out.extend([mae, ";".join([str(n) for n in neighbors]), ";".join([str(d)for d in dist_to_neighbors])])
                     print(out) # TODO: check csv writer for file output
-                    out_lines.append(",".join(map(str, out)))
+                    out_lines.append(",".join(map(str, out)) + "\n")
             with open(OUTFILE, mode="a+") as file:
                 file.writelines(out_lines)
                 out_lines.clear()
