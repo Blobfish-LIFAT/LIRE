@@ -6,10 +6,11 @@ import numpy as np
 from scipy.sparse.linalg import svds
 from scipy.sparse import coo_matrix
 from scipy.cluster.hierarchy import dendrogram
-
+from scipy.spatial.distance import cosine as cosine_dist
 from math import sqrt, pow
 from numpy.linalg import norm
 from numba import jit
+from scipy.sparse import coo_matrix, csr_matrix
 from perturbations import perturbations_gaussian
 
 
@@ -71,7 +72,7 @@ def load_data(k=20):
     return U, sigma, Vt, movies_df, films_nb, iid_map, users_mean
 
 
-from scipy.sparse import coo_matrix, csr_matrix
+
 def read_sparse(rfile):
     indptr = [0]
     indices = []
@@ -96,7 +97,7 @@ def read_sparse(rfile):
             indices.append(index)
             data.append(float(l[2]))
         indptr.append(len(indices)) # one last time
-    return csr_matrix((data, indices, indptr), dtype=float)
+    return csr_matrix((data, indices, indptr), dtype=float), vocabulary
 
 def plot_dendrogram(model, **kwargs):
     # Create linkage matrix and then plot the dendrogram
@@ -214,8 +215,6 @@ def k_neighborhood(R, uindx, k):
     return res
 
 
-from scipy.spatial.distance import cosine as cosine_dist
-
 def robustness(target, target_expl, neighborhood, neighborhood_expl):
     ratios = []
     for i, neighbor in enumerate(neighborhood):
@@ -223,17 +222,6 @@ def robustness(target, target_expl, neighborhood, neighborhood_expl):
         ratios.append(ratio)
     return max(ratios)
 
-
-from surprise import SVD
-from surprise import Dataset
-
-class SparseDataset(Dataset):
-
-    def __init__(self, path):
-        self.sm = read_sparse(path)
-
-    def construct_trainset(self, raw_trainset):
-        return super().construct_trainset(raw_trainset)
 
 
 if __name__ == '__main__':
