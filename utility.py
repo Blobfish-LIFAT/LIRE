@@ -53,16 +53,16 @@ def load_data(k=20):
 
     ratings_df = ratings_df.astype(pd.SparseDtype(np.float32, np.nan)).pivot(index='userId', columns='movieId',
                                                                        values='rating')
-    users_mean = ratings_df.mean(axis=1).values
-
-    R_demeaned = ratings_df.sub(ratings_df.mean(axis=1), axis=0)
-    R_demeaned = coo_matrix(R_demeaned.fillna(0).values)
-
     iid_map = dict()
     i = 0
     for item in ratings_df:
         iid_map[i] = item
         i += 1
+
+    users_mean = ratings_df.mean(axis=1).values
+    R_demeaned = ratings_df.sub(ratings_df.mean(axis=1), axis=0)
+    R_demeaned = coo_matrix(R_demeaned.fillna(0).values)
+    del ratings_df
 
     U, sigma, Vt = svds(R_demeaned, k=k)
     sigma = np.diag(sigma)
