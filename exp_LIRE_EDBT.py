@@ -321,7 +321,8 @@ if __name__ == '__main__':
 
     from utility import read_sparse
 
-    all_actual_ratings, iid_map = read_sparse("./ml-latest-small/ratings.csv")
+    print("--- Loading Ratings ---")
+    all_actual_ratings, iid_map = read_sparse("./ml-20m/ratings.csv")
 
     # 1. Loading data and setting all matrices
     if os.path.isfile("U.gz") and os.path.isfile("sigma.gz") and os.path.isfile("Vt.gz") and os.path.isfile("labels.gz") and os.path.isfile('user_means.gz'):
@@ -341,11 +342,12 @@ if __name__ == '__main__':
         print('--- COMPUTE MODE ---')
         # 1. loading and setting data matrices
         #U, sigma, Vt, movies_df, films_nb, iid_map, user_means = load_data()
+        print("  De-Mean")
         user_means = all_actual_ratings.mean(axis=1)
         all_actual_ratings_demean = all_actual_ratings.todok(copy=True)
         for line, col in all_actual_ratings_demean.keys():
             all_actual_ratings_demean[(line, col)] = all_actual_ratings_demean[(line, col)] - user_means[line]
-
+        print("  Running SVD")
         U, sigma, Vt = svds(all_actual_ratings_demean, k=20)
         sigma = np.diag(sigma)
 
