@@ -345,10 +345,11 @@ if __name__ == '__main__':
         print("  De-Mean")
         user_means = all_actual_ratings.mean(axis=1)
         all_actual_ratings_demean = all_actual_ratings.todok(copy=True)
-        for line, col in all_actual_ratings_demean.keys():
+        from tqdm import tqdm
+        for line, col in tqdm(all_actual_ratings_demean.keys()):
             all_actual_ratings_demean[(line, col)] = all_actual_ratings_demean[(line, col)] - user_means[line]
         print("  Running SVD")
-        U, sigma, Vt = svds(all_actual_ratings_demean, k=20)
+        U, sigma, Vt = svds(all_actual_ratings_demean.tocsr(), k=20)
         sigma = np.diag(sigma)
 
         films_nb = Vt.shape[1]
@@ -363,9 +364,10 @@ if __name__ == '__main__':
         np.savetxt('user_means.gz', user_means)
         pickle.dump(iid_map, open("iid_map.p", "wb"))
 
-        print("Running clustering")
+        print("Running UMAP")
         reducer = umap.UMAP(n_components=3, n_neighbors=30, random_state=12, min_dist=0.0001)  # metric='cosine'
         embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
+        print("Running clustering")
         clusterer = hdbscan.HDBSCAN()
         clusterer.fit(embedding)
         labels = clusterer.labels_
