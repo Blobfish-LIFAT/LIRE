@@ -51,22 +51,24 @@ def load_data(k=20):
     ratings_df = ratings_df.drop(columns=['timestamp'])
     films_nb = len(set(ratings_df.movieId))
 
-    R_df = ratings_df.astype(pd.SparseDtype(np.float32, np.nan)).pivot(index='userId', columns='movieId',
+    ratings_df = ratings_df.astype(pd.SparseDtype(np.float32, np.nan)).pivot(index='userId', columns='movieId',
                                                                        values='rating')
-    users_mean = R_df.mean(axis=1).values
+    users_mean = ratings_df.mean(axis=1).values
 
-    R_demeaned = R_df.sub(R_df.mean(axis=1), axis=0)
+    R_demeaned = ratings_df.sub(ratings_df.mean(axis=1), axis=0)
     R_demeaned = coo_matrix(R_demeaned.fillna(0).values)
+
+    iid_map = dict()
+    i = 0
+    for item in ratings_df:
+        iid_map[i] = item
+        i += 1
 
     U, sigma, Vt = svds(R_demeaned, k=k)
     sigma = np.diag(sigma)
-    all_user_predicted_ratings = np.dot(np.dot(U, sigma), Vt) + users_mean.reshape(-1, 1)
 
-    all_actual_ratings = R_df.values
-    cond = np.invert(np.isnan(all_actual_ratings))
-    #np.copyto(all_user_predicted_ratings, all_actual_ratings, where=cond)
 
-    return U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb
+    return U, sigma, Vt, movies_df, films_nb, iid_map, users_mean
 
 
 from scipy.sparse import coo_matrix, csr_matrix

@@ -19,6 +19,7 @@
 ## imports
 import numpy as np
 import os.path
+import pickle
 import umap
 from utility import load_data as load_data
 from scipy.optimize import least_squares
@@ -317,27 +318,28 @@ if __name__ == '__main__':
     Vt = None
     all_user_predicted_ratings = None
 
+    from utility import read_sparse
+
+    all_actual_ratings = read_sparse("./ml-latest-small/ratings.csv")
+
     # 1. Loading data and setting all matrices
-    if os.path.isfile("U.gz") and os.path.isfile("sigma.gz") and os.path.isfile("Vt.gz") \
-            and os.path.isfile("all_ratings.gz") and os.path.isfile("labels.gz") and os.path.isfile('user_means.gz'):
+    if os.path.isfile("U.gz") and os.path.isfile("sigma.gz") and os.path.isfile("Vt.gz") and os.path.isfile("labels.gz") and os.path.isfile('user_means.gz'):
         print("-- LOAD MODE ---")
         # loading pre-computed matrices
         U = np.loadtxt("U.gz")
         sigma = np.loadtxt("sigma.gz")
         Vt = np.loadtxt("Vt.gz")
-        all_user_predicted_ratings = np.loadtxt("all_ratings.gz")
         labels = np.loadtxt("labels.gz")
+        user_means = np.loadtxt('user_means.gz')
+        iid_map = pickle.load(open("iid_map.p", "rb"))
         films_nb = Vt.shape[1]
         if films_nb < 10000:
             print("[WARNING] Using 100K SMALL dataset !")
-        user_means = np.loadtxt('user_means.gz')
 
     else:
         print('--- COMPUTE MODE ---')
         # 1. loading and setting data matrices
-        U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, \
-        movies_df, ratings_df, films_nb = load_data()
-        user_means = np.nanmean(all_actual_ratings, axis=1)
+        U, sigma, Vt, movies_df, films_nb, iid_map, user_means = load_data()
 
         if VERBOSE: print("films", films_nb)
         if films_nb < 10000:
@@ -348,22 +350,14 @@ if __name__ == '__main__':
         np.savetxt("sigma.gz", sigma)
         np.savetxt("Vt.gz", Vt)
         np.savetxt('user_means.gz', user_means)
-        np.savetxt("all_ratings.gz", all_user_predicted_ratings)
-        reducer = umap.UMAP(n_components=3, n_neighbors=30, random_state=12,
-                                      min_dist=0.0001)  # metric='cosine'
-        embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
+        pickle.dump(iid_map, open("iid_map.p", "wb"))
 
         print("Running clustering")
-        ## 3. Clustering
+        reducer = umap.UMAP(n_components=3, n_neighbors=30, random_state=12, min_dist=0.0001)  # metric='cosine'
+        embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
         clusterer = hdbscan.HDBSCAN()
         clusterer.fit(embedding)
         labels = clusterer.labels_
         np.savetxt("labels.gz", labels)
-
-    ## 2. Determining neighborhood as a clustering problem
-    from utility import read_sparse
-    if not ("all_actual_ratings" in locals() or "all_actual_ratings" in globals()):
-        all_actual_ratings = read_sparse("./ml-latest-small/ratings.csv")
-
 
     experiment(U, sigma, Vt, user_means, labels, all_actual_ratings)
