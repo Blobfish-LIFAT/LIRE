@@ -30,15 +30,10 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn import linear_model
 from scipy.spatial.distance import cosine as cosine_dist
-
-
-## constants
-VERBOSE = False
-F_LATENT_FACTORS = 10
-DIM_UMAP = 3            # number of dimensions after UMAP reduction
-N_TRAINING_POINTS = 50
-PERT_STD = 1.04 # empiricaly determined from dataset
-OUTFILE = "res/exp_edbt_test.csv"
+from config import Config
+from utility import read_sparse
+import torch
+from torch import nn, optim
 
 
 def oos_predictor(perturbation, sigma, Vt):
@@ -67,8 +62,25 @@ def oos_predictor(perturbation, sigma, Vt):
 
     return (res.x @ sigma @ Vt) + moy
 
+def get_OOS_pred_slice(users, s, v, epochs=50):
+    # print("  --- --- ---")
+    umean = users.sum(axis=1) / (users != 0.).sum(axis=1)
+    umask = users != 0.
 
-def perturbations_gaussian(original_user, fake_users: int, std=2, proba=0.1):
+    unew = nn.Parameter(torch.zeros(users.size()[0], s.size()[0], device=users.device, dtype=users.dtype, requires_grad=True))
+    opt = optim.Adagrad([unew])
+
+    for epoch in range(epochs):
+        pred = unew @ s @ v + umean.expand(v.size()[1], users.size()[0]).transpose(0, 1)
+        loss = torch.sum(torch.pow(((users - pred) * umask), 2)) / torch.sum(umask)
+        loss.backward()
+        opt.step()
+        opt.zero_grad()
+
+    return ((unew @ s @ v + umean.expand(v.size()[1], users.size()[0]).transpose(0, 1)) * (users == 0.) + users).detach()
+
+
+def perturbations_gaussian(original_user, fake_users: int, std=1.04, proba=0.1):
 
     if(isinstance(original_user,scipy.sparse.csr.csr_matrix)):
         original_user = original_user.toarray()
@@ -82,8 +94,7 @@ def perturbations_gaussian(original_user, fake_users: int, std=2, proba=0.1):
     rd_mask = np.random.binomial(1, proba, (fake_users, nb_dim))
     noise = noise * rd_mask * (users != 0.)
     users = users + noise
-    # users[users > 5.] = 5. #seems to introduce detrimental bias in the training set
-    return np.clip(users, 0., None)
+    return np.clip(users, 0., 5.)
 
 
 def make_black_box_slice(U, sigma, Vt, means, indexes):
@@ -120,10 +131,7 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, 
         # generate perturbed users
         X_train[0:pert_nb, :] = perturbations_gaussian(all_user_ratings[user_id], pert_nb)
         X_train[0:pert_nb, item_id] = 0
-        # todo: check if correct CHECKED
-        ## do the oos prediction
-        for i in range(pert_nb):
-            y_train[i] = oos_predictor(X_train[i], sigma, Vt)[item_id]
+        y_train[range(pert_nb)] = get_OOS_pred_slice(torch.tensor(X_train[range(pert_nb)], dtype=torch_precision, device=device), sigma_t, Vt_t).numpy()[:, item_id]
 
     if cluster_nb > 0:
         # generate neighbors training set part
@@ -318,11 +326,16 @@ if __name__ == '__main__':
     sigma = None
     Vt = None
     all_user_predicted_ratings = None
+    OUTFILE = "res/exp_edbt_test.csv"
 
-    from utility import read_sparse
+    print('--- Configuring Torch')
+    torch_precision = torch.float32
+    Config.set_device_cpu()
+    device = Config.getInstance().device_
+    print("Running tensor computations on", device)
 
     print("--- Loading Ratings ---")
-    all_actual_ratings, iid_map = read_sparse("./ml-20m/ratings.csv")
+    all_actual_ratings, iid_map = read_sparse("./ml-latest-small/ratings.csv")
 
     # 1. Loading data and setting all matrices
     if os.path.isfile("U.gz") and os.path.isfile("sigma.gz") and os.path.isfile("Vt.gz") and os.path.isfile("labels.gz") and os.path.isfile('user_means.gz'):
@@ -335,8 +348,6 @@ if __name__ == '__main__':
         user_means = np.loadtxt('user_means.gz')
         iid_map = pickle.load(open("iid_map.p", "rb"))
         films_nb = Vt.shape[1]
-        if films_nb < 10000:
-            print("[WARNING] Using 100K SMALL dataset !")
 
     else:
         print('--- COMPUTE MODE ---')
@@ -351,17 +362,14 @@ if __name__ == '__main__':
         print("  Running SVD")
         U, sigma, Vt = svds(all_actual_ratings_demean.tocsr(), k=20)
         sigma = np.diag(sigma)
-
         films_nb = Vt.shape[1]
-        if VERBOSE: print("films", films_nb)
-        if films_nb < 10000:
-            print("[WARNING] Using 100K SMALL dataset !")
 
         # saving matrices
         np.savetxt("U.gz", U)
         np.savetxt("sigma.gz", sigma)
         np.savetxt("Vt.gz", Vt)
         np.savetxt('user_means.gz', user_means)
+        user_means = np.loadtxt('user_means.gz') # Dirty fix
         pickle.dump(iid_map, open("iid_map.p", "wb"))
 
         print("Running UMAP")
@@ -372,5 +380,12 @@ if __name__ == '__main__':
         clusterer.fit(embedding)
         labels = clusterer.labels_
         np.savetxt("labels.gz", labels)
+
+    if films_nb < 10000:
+        print("[WARNING] Using 100K SMALL dataset !")
+
+    # Load this in memory for torch (possibly on the GPU)
+    sigma_t = torch.tensor(sigma, dtype=torch_precision, device=device)
+    Vt_t = torch.tensor(Vt, dtype=torch_precision, device=device)
 
     experiment(U, sigma, Vt, user_means, labels, all_actual_ratings)
