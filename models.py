@@ -146,9 +146,25 @@ def get_OOS_pred(user, s, v, films_nb, epochs=20):
     return ((unew @ s @ v + umean.expand(films_nb, user.size()[0]).transpose(0, 1)) * (user == 0.) + user).detach()
 
 
+def get_OOS_pred_single(user, s, v, epochs=50):
+    umean = user.sum() / (user != 0.).sum()
+    umask = user != 0.
+
+    unew = nn.Parameter(torch.zeros(s.size()[0], device=user.device, dtype=user.dtype, requires_grad=True))
+    opt = optim.Adagrad([unew])
+
+    for epoch in range(epochs):
+        pred = unew @ s @ v + umean
+        loss = torch.sum(torch.pow(((user - pred) * umask), 2)) / torch.sum(umask)
+        loss.backward()
+        opt.step()
+        opt.zero_grad()
+
+    return (unew @ s @ v + umean).detach()
+
 if __name__ == '__main__':
-    from utility import svd_black_box
-    U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = svd_black_box()
+    from utility import load_data
+    U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data()
     print("films", films_nb)
 
     from scipy.optimize import least_squares
@@ -165,7 +181,7 @@ if __name__ == '__main__':
                 return (perturbation - pred) * umask
             return pred_fn
 
-        res = least_squares(prepare(test), np.ones(20))
+        res = least_squares(prepare(test), np.ones(20), loss="soft_l1")
         #print(res)
         #print(U[50])
         moy = test.sum() / (test != 0.).sum()
