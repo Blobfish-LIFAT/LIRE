@@ -68,7 +68,7 @@ def get_OOS_pred_slice(users, s, v, epochs=100):
     umean = users.sum(axis=1) / (users != 0.).sum(axis=1)
     umask = users != 0.
 
-    unew = nn.Parameter(torch.zeros(users.size()[0], s.size()[0], device=users.device, dtype=users.dtype, requires_grad=True))
+    unew = nn.Parameter(torch.ones(users.size()[0], s.size()[0], device=users.device, dtype=users.dtype, requires_grad=True))
     opt = optim.Adadelta([unew])
 
     for epoch in range(epochs):
@@ -78,7 +78,7 @@ def get_OOS_pred_slice(users, s, v, epochs=100):
         opt.step()
         opt.zero_grad()
 
-    return ((unew @ s @ v + umean.expand(v.size()[1], users.size()[0]).transpose(0, 1)) * (users == 0.) + users).detach()
+    return ((unew @ s @ v + umean.expand(v.size()[1], users.size()[0]).transpose(0, 1)) * (users == 0.) + users).detach().clamp(0., 5.)
 
 
 def perturbations_gaussian(original_user, fake_users: int, std=3, proba=0.5):
@@ -383,16 +383,16 @@ if __name__ == '__main__':
     # Load sigma and Vt in memory for torch (possibly on the GPU)
     sigma_t = torch.tensor(sigma, dtype=torch_precision, device=device)
     Vt_t = torch.tensor(Vt, dtype=torch_precision, device=device)
-    import random
-    from models import get_OOS_pred_single
-    to_test = random.sample(all_actual_ratings.todok().keys(), 100)
-    maes = []
-    for uid, iid in to_test:
-        #print("---", uid, iid, "---")
-        #pred = oos_predictor(all_actual_ratings[uid].toarray()[0], sigma, Vt)
-        #print(all_actual_ratings[uid, iid], pred[iid])
-        pred_torch = get_OOS_pred_single(torch.tensor(all_actual_ratings[uid].toarray()[0], device=device, dtype=torch_precision), sigma_t, Vt_t)
-        #print(all_actual_ratings[uid, iid], pred_torch[iid])
-        maes.append(abs(all_actual_ratings[uid, iid] - pred_torch[iid].item()))
-    print(np.mean(maes), np.std(maes))
+
     #experiment(U, sigma, Vt, user_means, labels, all_actual_ratings)
+
+    import random
+    from models import get_OOS_pred_single, OOS_pred_smart
+
+    to_test = random.sample(all_actual_ratings.todok().keys(), 100)
+    mae = []
+    for u, i in to_test:
+        mae.append(abs(OOS_pred_smart(torch.tensor(all_actual_ratings[u].toarray(), dtype=torch_precision, device=device), sigma_t, Vt_t, U[u])[i].cpu() - all_actual_ratings[u,i]))
+    print("mae", np.mean(mae), np.std(mae))
+
+

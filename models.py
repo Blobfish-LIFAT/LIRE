@@ -162,6 +162,24 @@ def get_OOS_pred_single(user, s, v, epochs=50):
 
     return (unew @ s @ v + umean).detach()
 
+
+def OOS_pred_smart(user, s, v, init_vec, epochs=50):
+    umean = user.sum() / (user != 0.).sum()
+    umask = user != 0.
+
+    unew = nn.Parameter(torch.tensor(init_vec, device=user.device, dtype=user.dtype, requires_grad=True))
+    opt = optim.Adagrad([unew], 1)
+
+    for epoch in range(epochs):
+        pred = unew @ s @ v + umean
+        loss = ( torch.sum(torch.pow(((user - pred) * umask), 2)) / torch.sum(umask) )
+        loss.backward()
+        opt.step()
+        opt.zero_grad()
+
+    return torch.clamp((unew @ s @ v + umean).detach(), 0., 5.)
+
+
 if __name__ == '__main__':
     from utility import load_data
     U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data()
