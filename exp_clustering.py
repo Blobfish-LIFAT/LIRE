@@ -116,7 +116,7 @@ def run_cold(all_actual_ratings_, all_user_predicted_ratings_, s_, v_, PERTURBAT
 N_FEATS = 10
 for lire_sigma in [1,2,4]:
     for pratio in [0., 0.5, 1.0]:
-        for cls in [4]:
+        for cls in [10]:
             CLS_MOVIE_WEIGHT = cls
             PERTURBATION_RATIO = pratio
             PERTURBATION_NB = int(N_TRAINING_POINTS * PERTURBATION_RATIO)

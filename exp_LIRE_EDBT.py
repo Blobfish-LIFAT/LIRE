@@ -21,7 +21,6 @@ import numpy as np
 import os.path
 import pickle
 import umap
-from utility import load_data as load_data
 from scipy.optimize import least_squares
 from scipy.sparse.linalg import svds
 import hdbscan
@@ -32,6 +31,8 @@ from sklearn import linear_model
 from scipy.spatial.distance import cosine as cosine_dist
 from config import Config
 from utility import read_sparse
+from tqdm import tqdm
+from sklearn.cluster import KMeans
 import torch
 from torch import nn, optim
 
@@ -62,13 +63,13 @@ def oos_predictor(perturbation, sigma, Vt):
 
     return (res.x @ sigma @ Vt) + moy
 
-def get_OOS_pred_slice(users, s, v, epochs=50):
+def get_OOS_pred_slice(users, s, v, epochs=100):
     # print("  --- --- ---")
     umean = users.sum(axis=1) / (users != 0.).sum(axis=1)
     umask = users != 0.
 
     unew = nn.Parameter(torch.zeros(users.size()[0], s.size()[0], device=users.device, dtype=users.dtype, requires_grad=True))
-    opt = optim.Adagrad([unew])
+    opt = optim.Adadelta([unew])
 
     for epoch in range(epochs):
         pred = unew @ s @ v + umean.expand(v.size()[1], users.size()[0]).transpose(0, 1)
@@ -80,7 +81,7 @@ def get_OOS_pred_slice(users, s, v, epochs=50):
     return ((unew @ s @ v + umean.expand(v.size()[1], users.size()[0]).transpose(0, 1)) * (users == 0.) + users).detach()
 
 
-def perturbations_gaussian(original_user, fake_users: int, std=1.04, proba=0.1):
+def perturbations_gaussian(original_user, fake_users: int, std=3, proba=0.5):
 
     if(isinstance(original_user,scipy.sparse.csr.csr_matrix)):
         original_user = original_user.toarray()
@@ -131,7 +132,7 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, 
         # generate perturbed users
         X_train[0:pert_nb, :] = perturbations_gaussian(all_user_ratings[user_id], pert_nb)
         X_train[0:pert_nb, item_id] = 0
-        y_train[range(pert_nb)] = get_OOS_pred_slice(torch.tensor(X_train[range(pert_nb)], dtype=torch_precision, device=device), sigma_t, Vt_t).numpy()[:, item_id]
+        y_train[range(pert_nb)] = get_OOS_pred_slice(torch.tensor(X_train[range(pert_nb)], dtype=torch_precision, device=device), sigma_t, Vt_t).cpu().numpy()[:, item_id]
 
     if cluster_nb > 0:
         # generate neighbors training set part
@@ -192,9 +193,8 @@ def robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, clu
 
     return np.max(robustness), mae, neighbors_index, dist_to_neighbors
 
-def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
-                         all_user_ratings, cluster_labels, train_set_size,
-                         pert_ratio=0.5, k_neighbors=[5, 10, 15]):
+
+def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5, k_neighbors=[5, 10, 15]):
 
     base_exp, mae = explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
     max_neighbors = np.max(k_neighbors)
@@ -310,7 +310,7 @@ def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_se
             for train in training_set_sizes:
                 for pr in pratio:
                     # todo: check => retrieve neighbors and dist_to_neigbors and save them into output file
-                    res, mae, neighbors, dist_to_neighbors = robustness_score_tab(user_id, movie_id, 10, sigma, Vt, all_actual_ratings, labels, train, pert_ratio=pr, k_neighbors=k_neighbors)
+                    res, mae, neighbors, dist_to_neighbors = robustness_score_tab(user_id, movie_id, 10, sigma, Vt, user_means, all_actual_ratings, labels, train, pert_ratio=pr, k_neighbors=k_neighbors)
                     out = [user_id, movie_id, train, pr]
                     out.extend([r for r in res])
                     out.extend([mae, ";".join([str(n) for n in neighbors]), ";".join([str(d)for d in dist_to_neighbors])])
@@ -330,62 +330,69 @@ if __name__ == '__main__':
 
     print('--- Configuring Torch')
     torch_precision = torch.float32
-    Config.set_device_cpu()
+    Config.set_device_gpu()
     device = Config.getInstance().device_
     print("Running tensor computations on", device)
 
     print("--- Loading Ratings ---")
     all_actual_ratings, iid_map = read_sparse("./ml-latest-small/ratings.csv")
 
-    # 1. Loading data and setting all matrices
+    # Loading data and setting all matrices
     if os.path.isfile("U.gz") and os.path.isfile("sigma.gz") and os.path.isfile("Vt.gz") and os.path.isfile("labels.gz") and os.path.isfile('user_means.gz'):
         print("-- LOAD MODE ---")
-        # loading pre-computed matrices
         U = np.loadtxt("U.gz")
         sigma = np.loadtxt("sigma.gz")
         Vt = np.loadtxt("Vt.gz")
         labels = np.loadtxt("labels.gz")
         user_means = np.loadtxt('user_means.gz')
         iid_map = pickle.load(open("iid_map.p", "rb"))
-        films_nb = Vt.shape[1]
 
+    # No data found computing black box and clusters results
     else:
         print('--- COMPUTE MODE ---')
-        # 1. loading and setting data matrices
-        #U, sigma, Vt, movies_df, films_nb, iid_map, user_means = load_data()
         print("  De-Mean")
         user_means = all_actual_ratings.mean(axis=1)
         all_actual_ratings_demean = all_actual_ratings.todok(copy=True)
-        from tqdm import tqdm
         for line, col in tqdm(all_actual_ratings_demean.keys()):
-            all_actual_ratings_demean[(line, col)] = all_actual_ratings_demean[(line, col)] - user_means[line]
+            all_actual_ratings_demean[(line, col)] -= user_means[line]
+
         print("  Running SVD")
         U, sigma, Vt = svds(all_actual_ratings_demean.tocsr(), k=20)
         sigma = np.diag(sigma)
-        films_nb = Vt.shape[1]
 
         # saving matrices
         np.savetxt("U.gz", U)
         np.savetxt("sigma.gz", sigma)
         np.savetxt("Vt.gz", Vt)
         np.savetxt('user_means.gz', user_means)
-        user_means = np.loadtxt('user_means.gz') # Dirty fix
+        user_means = np.loadtxt('user_means.gz')# Dirty fix to avoid a shape issue
         pickle.dump(iid_map, open("iid_map.p", "wb"))
 
         print("Running UMAP")
-        reducer = umap.UMAP(n_components=3, n_neighbors=30, random_state=12, min_dist=0.0001)  # metric='cosine'
-        embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
+        reducer = umap.UMAP(n_components=3, n_neighbors=30, min_dist=0.0001, metric='cosine', low_memory=True)  # metric='cosine'
+        embedding = reducer.fit_transform(all_actual_ratings)
         print("Running clustering")
-        clusterer = hdbscan.HDBSCAN()
+        clusterer = KMeans(n_clusters=75)
         clusterer.fit(embedding)
         labels = clusterer.labels_
         np.savetxt("labels.gz", labels)
 
-    if films_nb < 10000:
+    if Vt.shape[1] < 10000:
         print("[WARNING] Using 100K SMALL dataset !")
 
-    # Load this in memory for torch (possibly on the GPU)
+    # Load sigma and Vt in memory for torch (possibly on the GPU)
     sigma_t = torch.tensor(sigma, dtype=torch_precision, device=device)
     Vt_t = torch.tensor(Vt, dtype=torch_precision, device=device)
-
-    experiment(U, sigma, Vt, user_means, labels, all_actual_ratings)
+    import random
+    from models import get_OOS_pred_single
+    to_test = random.sample(all_actual_ratings.todok().keys(), 100)
+    maes = []
+    for uid, iid in to_test:
+        #print("---", uid, iid, "---")
+        #pred = oos_predictor(all_actual_ratings[uid].toarray()[0], sigma, Vt)
+        #print(all_actual_ratings[uid, iid], pred[iid])
+        pred_torch = get_OOS_pred_single(torch.tensor(all_actual_ratings[uid].toarray()[0], device=device, dtype=torch_precision), sigma_t, Vt_t)
+        #print(all_actual_ratings[uid, iid], pred_torch[iid])
+        maes.append(abs(all_actual_ratings[uid, iid] - pred_torch[iid].item()))
+    print(np.mean(maes), np.std(maes))
+    #experiment(U, sigma, Vt, user_means, labels, all_actual_ratings)
