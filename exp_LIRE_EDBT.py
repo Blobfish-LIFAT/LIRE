@@ -30,16 +30,13 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn import linear_model
 from scipy.spatial.distance import cosine as cosine_dist
-
-
-## constants
-VERBOSE = False
-F_LATENT_FACTORS = 10
-DIM_UMAP = 3            # number of dimensions after UMAP reduction
-N_TRAINING_POINTS = 50
-PERT_STD = 1.04 # empiricaly determined from dataset
-OUTFILE = "res/exp_edbt_test.csv"
-
+from config import Config
+from utility import read_sparse
+import torch
+from torch import nn, optim
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_samples,silhouette_score
 
 def oos_predictor(perturbation, sigma, Vt):
     def prepare(perturbation):
@@ -67,8 +64,25 @@ def oos_predictor(perturbation, sigma, Vt):
 
     return (res.x @ sigma @ Vt) + moy
 
+def get_OOS_pred_slice(users, s, v, epochs=50):
+    # print("  --- --- ---")
+    umean = users.sum(axis=1) / (users != 0.).sum(axis=1)
+    umask = users != 0.
 
-def perturbations_gaussian(original_user, fake_users: int, std=2, proba=0.1):
+    unew = nn.Parameter(torch.zeros(users.size()[0], s.size()[0], device=users.device, dtype=users.dtype, requires_grad=True))
+    opt = optim.Adagrad([unew])
+
+    for epoch in range(epochs):
+        pred = unew @ s @ v + umean.expand(v.size()[1], users.size()[0]).transpose(0, 1)
+        loss = torch.sum(torch.pow(((users - pred) * umask), 2)) / torch.sum(umask)
+        loss.backward()
+        opt.step()
+        opt.zero_grad()
+
+    return ((unew @ s @ v + umean.expand(v.size()[1], users.size()[0]).transpose(0, 1)) * (users == 0.) + users).detach()
+
+
+def perturbations_gaussian(original_user, fake_users: int, std=1.04, proba=0.5):
 
     if(isinstance(original_user,scipy.sparse.csr.csr_matrix)):
         original_user = original_user.toarray()
@@ -82,8 +96,7 @@ def perturbations_gaussian(original_user, fake_users: int, std=2, proba=0.1):
     rd_mask = np.random.binomial(1, proba, (fake_users, nb_dim))
     noise = noise * rd_mask * (users != 0.)
     users = users + noise
-    # users[users > 5.] = 5. #seems to introduce detrimental bias in the training set
-    return np.clip(users, 0., None)
+    return np.clip(users, 0., 5.)
 
 
 def make_black_box_slice(U, sigma, Vt, means, indexes):
@@ -120,10 +133,7 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, 
         # generate perturbed users
         X_train[0:pert_nb, :] = perturbations_gaussian(all_user_ratings[user_id], pert_nb)
         X_train[0:pert_nb, item_id] = 0
-        # todo: check if correct CHECKED
-        ## do the oos prediction
-        for i in range(pert_nb):
-            y_train[i] = oos_predictor(X_train[i], sigma, Vt)[item_id]
+        y_train[range(pert_nb)] = get_OOS_pred_slice(torch.tensor(X_train[range(pert_nb)], dtype=torch_precision, device=device), sigma_t, Vt_t).numpy()[:, item_id]
 
     if cluster_nb > 0:
         # generate neighbors training set part
@@ -132,7 +142,6 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, 
         neighbors_index = np.where(cluster_labels == cluster_index)[0]
         neighbors_index = neighbors_index[neighbors_index != user_id]
         neighbors_index = np.random.choice(neighbors_index, cluster_nb)
-        t = all_user_ratings[neighbors_index, :]
         X_train[pert_nb:train_set_size, :] = all_user_ratings[neighbors_index,:]
         X_train[pert_nb:train_set_size, item_id] = 0
         # todo: NEW check if correct
@@ -186,7 +195,7 @@ def robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, clu
 
 def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
                          all_user_ratings, cluster_labels, train_set_size,
-                         pert_ratio=0.5, k_neighbors=[5, 10, 15]):
+                         pert_ratio=0.5, k_neighbors:list=[5, 10, 15]):
 
     base_exp, mae = explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio)
     max_neighbors = np.max(k_neighbors)
@@ -236,8 +245,8 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt,
     return res, mae, sorted_dict.keys(), sorted_dist
 
 
-def exp_check_UMAP(users, items, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size=50,
-                   n_dim_UMAP=[3, 5, 10], n_neighbors_UMAP=[10, 30, 50], pert_ratio=0.5, k_neighbors=10):
+def exp_check_UMAP(n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size=50,n_dim_UMAP = [3,10,15],
+                   min_dist_UMAP=[0.1,0.01,0.001], n_neighbors_UMAP=[10, 30, 50], pert_ratio=0, k_neighbors=10):
     """
     Run test to evaluate the sensitivity of our method to UMAP dimensionality reduction
     :param users: numpy array of user ids
@@ -255,26 +264,79 @@ def exp_check_UMAP(users, items, n_coeff, sigma, Vt, all_user_ratings, cluster_l
     :param k_neighbors:
     :return:
     """
+    items = np.random.choice(range(Vt.shape[1]), 5)
+    users = np.random.choice(range(U.shape[0]), 10)
+    columns = ['clustering_algorithm','n_cluster','robustness@5','robustness@10','robustness@15','mae','user_id','item_id','silhoutte_score_by_cluster','silhouette_score_all']
+    result = []
     for n_dim in n_dim_UMAP:
-        for n_neighbor in n_neighbors_UMAP:
-            # UMAP
-            reducer = umap.UMAP(n_components=n_dim, n_neighbors=n_neighbor, random_state=12,
-                                          min_dist=0.0001)  # metric='cosine'
-            embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
+        for min_dist in min_dist_UMAP:
+            for n_neighbor in n_neighbors_UMAP:
+                reducer = umap.UMAP(n_components=n_dim, n_neighbors=n_neighbor, random_state=12,
+                                    min_dist=min_dist)  # metric='cosine'
+                embedding = reducer.fit_transform(all_actual_ratings)
+                for clustering_algorithm in ['kmeans','hdbscan']:
 
-            # clustering
-            clusterer = hdbscan.HDBSCAN()
-            clusterer.fit(embedding)
-            labels = clusterer.labels_
-            np.savetxt("labels_" + str(n_dim) + "_" + str(n_neighbor) +".gz", labels)   # personalize output filename
+                    if (clustering_algorithm == 'kmeans'):
 
-            # robustness measure
-            for user_id in users:
-                for item_id in items:
-                    # todo : save in a file somewhere, which format?
-                    robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings,
-                                     cluster_labels, train_set_size, pert_ratio, k_neighbors)
+                        hyperparameters_clustering = [5,10,15]
+                        for hyperparameter in hyperparameters_clustering:
+                            hyperparameter_clustering = hyperparameter
+                            clusterer = KMeans(n_clusters = hyperparameter)
+                            clusterer.fit(embedding)
+                            labels = clusterer.labels_
 
+                            #Calcul of silhouette scores by sample, cluster and all
+                            X = all_user_ratings.toarray()
+                            silh_samp = silhouette_samples(X=X, labels=labels, metric='cosine')
+                            silh_score = silhouette_score(X=X, labels=labels, metric='cosine')
+                            df_temp = pd.DataFrame(silh_samp,columns=['silh_samp'])
+                            df_temp['labels'] = labels
+                            silh_clust = [df_temp.loc[df_temp['labels']==label]['silh_samp'].mean() for label in set(labels)]
+
+                            np.savetxt("labels_" + str(n_dim) + "_" + str(n_neighbor) + ".gz",
+                                       labels)  # personalize output filename
+
+                            # robustness measure
+                            for user_id in users:
+                                for item_id in items:
+                                    # todo : save in a file somewhere, which format?
+                                    res, mae, keys, distances = robustness_score_tab(user_id, item_id, n_coeff, sigma,
+                                                                                     Vt, all_user_ratings,
+                                                                                     labels, train_set_size, pert_ratio,
+                                                                                     k_neighbors)
+                                    l = [clustering_algorithm, hyperparameter_clustering, res[0], res[1], res[2], mae,
+                                         user_id, item_id, silh_score, silh_clust]
+                                    print("user :", user_id, " item_id", item_id, " line added :", l)
+                                    result.append(l)
+                    else:
+                        hyperparameter_clustering = None
+                        clusterer = hdbscan.HDBSCAN()
+
+                        clusterer.fit(embedding)
+
+                        labels = clusterer.labels_
+                        # Calcul of silhouette scores by sample, cluster and all
+                        X = all_user_ratings.toarray()
+                        silh_samp = silhouette_samples(X=X, labels=labels, metric='cosine')
+                        silh_score = silhouette_score(X=X, labels=labels, metric='cosine')
+                        df_temp = pd.DataFrame(silh_samp, columns=['silh_samp'])
+                        df_temp['labels'] = labels
+                        silh_clust = [df_temp.loc[df_temp['labels'] == label]['silh_samp'].mean() for label in set(labels)]
+
+                        np.savetxt("labels_" + str(n_dim) + "_" + str(n_neighbor) +".gz", labels)   # personalize output filename
+
+                        # robustness measure
+                        for user_id in users:
+                            for item_id in items:
+                                # todo : save in a file somewhere, which format?
+                                res,mae, keys, distances = robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings,
+                                                 labels, train_set_size, pert_ratio, k_neighbors)
+                                l = [clustering_algorithm,hyperparameter_clustering,res[0],res[1],res[2],mae,user_id,item_id,silh_score,silh_clust]
+                                print("user :",user_id," item_id",item_id, " line added :",l)
+                                result.append(l)
+
+    df = pd.DataFrame(result, columns=columns)
+    df.to_csv('clustering_result_parameters_search_v2.csv')
 
 def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_set_sizes=[100], pratio=[0., 0.5, 1.0], k_neighbors=[5,10,15], n_dim_UMAP=[3, 5, 10]):
     """
@@ -318,11 +380,16 @@ if __name__ == '__main__':
     sigma = None
     Vt = None
     all_user_predicted_ratings = None
+    OUTFILE = "res/exp_edbt_test.csv"
 
-    from utility import read_sparse
+    print('--- Configuring Torch')
+    torch_precision = torch.float32
+    Config.set_device_gpu()
+    device = Config.getInstance().device_
+    print("Running tensor computations on", device)
 
     print("--- Loading Ratings ---")
-    all_actual_ratings, iid_map = read_sparse("./ml-20m/ratings.csv")
+    all_actual_ratings, iid_map = read_sparse("./ml-latest-small/ratings.csv")
 
     # 1. Loading data and setting all matrices
     if os.path.isfile("U.gz") and os.path.isfile("sigma.gz") and os.path.isfile("Vt.gz") and os.path.isfile("labels.gz") and os.path.isfile('user_means.gz'):
@@ -335,8 +402,6 @@ if __name__ == '__main__':
         user_means = np.loadtxt('user_means.gz')
         iid_map = pickle.load(open("iid_map.p", "rb"))
         films_nb = Vt.shape[1]
-        if films_nb < 10000:
-            print("[WARNING] Using 100K SMALL dataset !")
 
     else:
         print('--- COMPUTE MODE ---')
@@ -346,31 +411,33 @@ if __name__ == '__main__':
         user_means = all_actual_ratings.mean(axis=1)
         all_actual_ratings_demean = all_actual_ratings.todok(copy=True)
         from tqdm import tqdm
+
         for line, col in tqdm(all_actual_ratings_demean.keys()):
             all_actual_ratings_demean[(line, col)] = all_actual_ratings_demean[(line, col)] - user_means[line]
         print("  Running SVD")
         U, sigma, Vt = svds(all_actual_ratings_demean.tocsr(), k=20)
         sigma = np.diag(sigma)
-
         films_nb = Vt.shape[1]
-        if VERBOSE: print("films", films_nb)
-        if films_nb < 10000:
-            print("[WARNING] Using 100K SMALL dataset !")
 
         # saving matrices
         np.savetxt("U.gz", U)
         np.savetxt("sigma.gz", sigma)
         np.savetxt("Vt.gz", Vt)
         np.savetxt('user_means.gz', user_means)
+        user_means = np.loadtxt('user_means.gz') # Dirty fix
         pickle.dump(iid_map, open("iid_map.p", "wb"))
 
-        print("Running UMAP")
+        '''print("Running UMAP")
         reducer = umap.UMAP(n_components=3, n_neighbors=30, random_state=12, min_dist=0.0001)  # metric='cosine'
         embedding = reducer.fit_transform(np.nan_to_num(all_actual_ratings))
         print("Running clustering")
         clusterer = hdbscan.HDBSCAN()
         clusterer.fit(embedding)
         labels = clusterer.labels_
-        np.savetxt("labels.gz", labels)
+        np.savetxt("labels.gz", labels)'''
 
-    experiment(U, sigma, Vt, user_means, labels, all_actual_ratings)
+    if films_nb < 10000:
+        print("[WARNING] Using 100K SMALL dataset !")
+
+    exp_check_UMAP(10, sigma, Vt, all_actual_ratings, None, train_set_size=50, n_dim_UMAP=[3],
+                       min_dist_UMAP=[0.01], n_neighbors_UMAP=[30], pert_ratio=0, k_neighbors=[5,10,15])
