@@ -14,9 +14,6 @@
     either from cluster or from perturbed points
         - no more torch representation, and no more use of Adam optimizer to determine out-of-sample predictions
 """
-
-
-## imports
 import numpy as np
 import os.path
 import pickle
@@ -28,14 +25,21 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn import linear_model
 from scipy.spatial.distance import cosine as cosine_dist
-from config import Config
-from utility import read_sparse
 from tqdm import tqdm
 from sklearn.cluster import KMeans
 import torch
 from torch import nn, optim
-from OOSPredictors import OOS_pred_slice, OOS_pred_smart
 import datetime
+
+from OOSPredictors import OOS_pred_slice, OOS_pred_smart
+from models import LinearRecommender, train
+from config import Config
+from utility import read_sparse
+from loss import LocalLossMAE_v3 as LocalLoss
+
+
+def make_tensor(array):
+    return torch.tensor(array, device=Config.device(), dtype=Config.precision())
 
 
 def perturbations_gaussian(original_user, fake_users: int, std=0.47, proba=0.1):
@@ -59,7 +63,7 @@ def make_black_box_slice(U, sigma, Vt, means, indexes):
     return (U[indexes] @ sigma @ Vt) + np.tile(means[indexes].reshape(len(indexes), 1), (1, Vt.shape[1]))
 
 
-def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5):
+def explain(user_id:int, item_id:int, n_coeff:int, sigma, Vt, user_means, all_user_ratings, cluster_labels, train_set_size:int, pert_ratio:float=0.5, mode:str= "lime"):
     """
 
     :param user_id: user for which an explanation is expected
@@ -89,9 +93,10 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, 
         # generate perturbed users
         X_train[0:pert_nb, :] = perturbations_gaussian(all_user_ratings[user_id], pert_nb)
         X_train[0:pert_nb, item_id] = 0
+        #Make the predictions for those
         #for k in range(pert_nb):
         #    y_train[k] = OOS_pred_smart(torch.tensor(X_train[k], device=device, dtype=torch_precision), sigma_t, Vt_t, U[user_id])[item_id].item()
-        y_train[range(pert_nb)] = OOS_pred_slice(torch.tensor(X_train[range(pert_nb)], dtype=torch_precision, device=device), sigma_t, Vt_t).cpu().numpy()[:, item_id]
+        y_train[range(pert_nb)] = OOS_pred_slice(make_tensor(X_train[range(pert_nb)]), sigma_t, Vt_t).cpu().numpy()[:, item_id]
 
     if cluster_nb > 0:
         # generate neighbors training set part
@@ -100,28 +105,35 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, 
         neighbors_index = np.where(cluster_labels == cluster_index)[0]
         neighbors_index = neighbors_index[neighbors_index != user_id]
         neighbors_index = np.random.choice(neighbors_index, cluster_nb)
-        t = all_user_ratings[neighbors_index, :]
-        X_train[pert_nb:train_set_size, :] = all_user_ratings[neighbors_index,:]
+        X_train[pert_nb:train_set_size, :] = all_user_ratings[neighbors_index, :]
         X_train[pert_nb:train_set_size, item_id] = 0
-        # todo: NEW check if correct
 
         predictor_slice = make_black_box_slice(U, sigma, Vt, user_means, neighbors_index)
         y_train[pert_nb:train_set_size] = predictor_slice[:, item_id]
 
     # 2. Now run a LARS linear regression model on the train set to generate the most parcimonious explanation
-    reg = linear_model.Lars(fit_intercept=False, n_nonzero_coefs=n_coeff)
-    reg.fit(X_train, y_train)
-    # todo: check item_id to explain is 0 CHECKED
+    if mode == "lars":
+        reg = linear_model.Lars(fit_intercept=False, n_nonzero_coefs=n_coeff)
+        reg.fit(X_train, y_train)
+        coef = reg.coef_
+        # Predict the value with the surrogate
+        X_user_id = all_user_ratings[user_id]
+        X_user_id[item_id] = 0
+        pred = reg.predict(X_user_id.reshape(1, -1))
+    # Or a classic lime style regression
+    elif mode == "lime":
+        model = LinearRecommender(X_train.shape[1])
+        local_loss = LocalLoss(make_tensor(all_user_ratings[user_id]), sigma=5.)
+        train(model, make_tensor(X_train), make_tensor(y_train), local_loss, 100, verbose=False)
+        coef = model.omega.detach().cpu().numpy()
+        pred = model(make_tensor(all_user_ratings[user_id])).item()
+    else:
+        raise NotImplementedError("No mode " + mode + " exists !")
 
-    #
-    X_user_id = all_user_ratings[user_id]
-    X_user_id[item_id] = 0
-    pred = reg.predict(X_user_id.reshape(1, -1))
-
+    # Check the real prediction to get a fidelity estimation
     y_predictor_slice = make_black_box_slice(U, sigma, Vt, user_means, np.array([user_id]))
     y_predictor_slice = y_predictor_slice.transpose()[item_id]
-    # todo: absolute error
-    return reg.coef_, abs(pred - y_predictor_slice)[0]     # todo: check that in all cases reg.coef_.length is equal to # items + 1
+    return coef, abs(pred - y_predictor_slice)[0]     # todo: check that in all cases reg.coef_.length is equal to # items + 1
 
 
 def robustness_score(user_id, item_id, n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_set_size, pert_ratio=0.5, k_neighbors=15):
@@ -289,10 +301,8 @@ if __name__ == '__main__':
     OUTFILE = "res/edbt/exp_edbt_"+datetime.datetime.now().strftime("%j_%H_%M")+".csv"
 
     print('--- Configuring Torch')
-    torch_precision = torch.float32
-    Config.set_device_cpu()
-    device = Config.getInstance().device_
-    print("Running tensor computations on", device)
+    Config.set_device_gpu()
+    print("Running tensor computations on", Config.device())
 
     print("--- Loading Ratings ---")
     all_actual_ratings, iid_map = read_sparse("./ml-latest-small/ratings.csv")
@@ -342,8 +352,8 @@ if __name__ == '__main__':
         print("[WARNING] Using 100K SMALL dataset !")
 
     # Load sigma and Vt in memory for torch (possibly on the GPU)
-    sigma_t = torch.tensor(sigma, dtype=torch_precision, device=device)
-    Vt_t = torch.tensor(Vt, dtype=torch_precision, device=device)
+    sigma_t = make_tensor(sigma)
+    Vt_t = make_tensor(Vt)
 
     experiment(U, sigma, Vt, user_means, labels, all_actual_ratings)
 """

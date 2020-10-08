@@ -1,12 +1,18 @@
 import torch
 
+
 class Config:
     __instance = None
     device_ = None
+    precision_ = torch.float32
 
     @staticmethod
     def device():
         return Config.getInstance().device_
+
+    @staticmethod
+    def precision():
+        return Config.getInstance().precision_
 
     @staticmethod
     def set_device_gpu():
