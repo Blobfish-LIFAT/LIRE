@@ -9,7 +9,6 @@ from scipy.cluster.hierarchy import linkage, to_tree
 from scipy.spatial.distance import cosine
 import loss
 import random
-from numba import jit
 
 # Gestion du mode pytorch CPU/GPU
 from config import Config

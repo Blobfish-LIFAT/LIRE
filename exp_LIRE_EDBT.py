@@ -21,7 +21,6 @@ import numpy as np
 import os.path
 import pickle
 import umap
-from scipy.optimize import least_squares
 from scipy.sparse.linalg import svds
 import hdbscan
 import scipy
@@ -35,54 +34,11 @@ from tqdm import tqdm
 from sklearn.cluster import KMeans
 import torch
 from torch import nn, optim
+from OOSPredictors import OOS_pred_slice, OOS_pred_smart
 import datetime
 
 
-def oos_predictor(perturbation, sigma, Vt):
-    def prepare(perturbation):
-        """
-        construct residual computation for least square optimization
-        :param perturbation: oos user signature
-        :return: method to compute residual vector for oos user "perturbation"
-        """
-        def pred_fn(user_vec_lat):
-            """
-            Compute an upgrade to the latent representation as a residual
-            :param user_vec_lat: current latent space representation of perturbation oos user
-            :return:
-            """
-            umean = user_vec_lat.sum() / (user_vec_lat != 0.).sum()
-            umask = perturbation != 0.
-            pred = (user_vec_lat @ sigma @ Vt) + umean
-            return (perturbation - pred) * umask
-
-        return pred_fn
-
-    res = least_squares(prepare(perturbation), np.ones(sigma.shape[0])) # latent space dimension
-
-    moy = perturbation.sum() / (perturbation != 0.).sum()
-
-    return (res.x @ sigma @ Vt) + moy
-
-def get_OOS_pred_slice(users, s, v, epochs=100):
-    # print("  --- --- ---")
-    umean = users.sum(axis=1) / (users != 0.).sum(axis=1)
-    umask = users != 0.
-
-    unew = nn.Parameter(torch.ones(users.size()[0], s.size()[0], device=users.device, dtype=users.dtype, requires_grad=True))
-    opt = optim.Adadelta([unew])
-
-    for epoch in range(epochs):
-        pred = unew @ s @ v + umean.expand(v.size()[1], users.size()[0]).transpose(0, 1)
-        loss = torch.sum(torch.pow(((users - pred) * umask), 2)) / torch.sum(umask)
-        loss.backward()
-        opt.step()
-        opt.zero_grad()
-
-    return ((unew @ s @ v + umean.expand(v.size()[1], users.size()[0]).transpose(0, 1)) * (users == 0.) + users).detach().clamp(0., 5.)
-
-
-def perturbations_gaussian(original_user, fake_users: int, std=3, proba=0.5):
+def perturbations_gaussian(original_user, fake_users: int, std=0.47, proba=0.1):
 
     if(isinstance(original_user,scipy.sparse.csr.csr_matrix)):
         original_user = original_user.toarray()
@@ -133,7 +89,9 @@ def explain(user_id, item_id, n_coeff, sigma, Vt, user_means, all_user_ratings, 
         # generate perturbed users
         X_train[0:pert_nb, :] = perturbations_gaussian(all_user_ratings[user_id], pert_nb)
         X_train[0:pert_nb, item_id] = 0
-        y_train[range(pert_nb)] = get_OOS_pred_slice(torch.tensor(X_train[range(pert_nb)], dtype=torch_precision, device=device), sigma_t, Vt_t).cpu().numpy()[:, item_id]
+        #for k in range(pert_nb):
+        #    y_train[k] = OOS_pred_smart(torch.tensor(X_train[k], device=device, dtype=torch_precision), sigma_t, Vt_t, U[user_id])[item_id].item()
+        y_train[range(pert_nb)] = OOS_pred_slice(torch.tensor(X_train[range(pert_nb)], dtype=torch_precision, device=device), sigma_t, Vt_t).cpu().numpy()[:, item_id]
 
     if cluster_nb > 0:
         # generate neighbors training set part
@@ -217,7 +175,7 @@ def robustness_score_tab(user_id, item_id, n_coeff, sigma, Vt, user_means, all_u
             dist_to_neighbors[id] = cosine_dist(np.nan_to_num(all_user_ratings[user_id]), np.nan_to_num(all_user_ratings[id]))
         rob_to_neighbors[id] = cosine_dist(exp_id, base_exp) / dist_to_neighbors[id]
         if np.isnan(cosine_dist(exp_id, base_exp)):
-            print('error')
+            print('error on explanations distance')
 
     # sort dict values by preserving key-value relation
     sorted_dict = {k: v for k, v in sorted(dist_to_neighbors.items(), key=lambda item: item[1])} # need Python 3.6
@@ -297,16 +255,17 @@ def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_se
     :return:
     """
 
-    MOVIE_IDS = np.random.choice(range(Vt.shape[1]), 10)
     USER_IDS = np.random.choice(range(U.shape[0]), 10)
 
     with open(OUTFILE, mode="w") as file:
         file.write('uid,iid,train_size,pert_ratio,'+",".join(["robustness_" + str(k) for k in k_neighbors])+',mae,neighbors,dist_to_neigh\n')
 
-    for movie_id in MOVIE_IDS:
-        print("[Progress] Movie", movie_id)
-        for user_id in USER_IDS:
-            print("[Progress] User", user_id)
+    for user_id in USER_IDS:
+        print("[Progress] User", user_id)
+        bb_slice = make_black_box_slice(U, sigma, Vt, user_means, [user_id])
+        MOVIE_IDS = np.random.choice(np.argwhere(bb_slice[0] >= 0.1).flatten(), 10) # predicting 0 is too easy and the explanation can only be trivial
+        for movie_id in MOVIE_IDS:
+            print("[Progress] Movie", movie_id)
             out_lines = []
             for train in training_set_sizes:
                 for pr in pratio:
@@ -331,7 +290,7 @@ if __name__ == '__main__':
 
     print('--- Configuring Torch')
     torch_precision = torch.float32
-    Config.set_device_gpu()
+    Config.set_device_cpu()
     device = Config.getInstance().device_
     print("Running tensor computations on", device)
 
@@ -342,11 +301,11 @@ if __name__ == '__main__':
     if os.path.isfile("temp/U.gz") and os.path.isfile("temp/sigma.gz") and os.path.isfile("temp/Vt.gz") and os.path.isfile(
             "temp/labels.gz") and os.path.isfile('temp/user_means.gz'):
         print("-- LOAD MODE ---")
-        U = np.loadtxt("U.gz")
-        sigma = np.loadtxt("sigma.gz")
-        Vt = np.loadtxt("Vt.gz")
-        labels = np.loadtxt("labels.gz")
-        user_means = np.loadtxt('user_means.gz')
+        U = np.loadtxt("temp/U.gz")
+        sigma = np.loadtxt("temp/sigma.gz")
+        Vt = np.loadtxt("temp/Vt.gz")
+        labels = np.loadtxt("temp/labels.gz")
+        user_means = np.loadtxt('temp/user_means.gz')
         iid_map = pickle.load(open("temp/iid_map.p", "rb"))
 
     # No data found computing black box and clusters results
@@ -363,21 +322,21 @@ if __name__ == '__main__':
         sigma = np.diag(sigma)
 
         # saving matrices
-        np.savetxt("U.gz", U)
-        np.savetxt("sigma.gz", sigma)
-        np.savetxt("Vt.gz", Vt)
-        np.savetxt('user_means.gz', user_means)
-        user_means = np.loadtxt('user_means.gz')# Dirty fix to avoid a shape issue
+        np.savetxt("temp/U.gz", U)
+        np.savetxt("temp/sigma.gz", sigma)
+        np.savetxt("temp/Vt.gz", Vt)
+        np.savetxt('temp/user_means.gz', user_means)
+        user_means = np.loadtxt('temp/user_means.gz')# Dirty fix to avoid a shape issue
         pickle.dump(iid_map, open("temp/iid_map.p", "wb"))
 
         print("Running UMAP")
-        reducer = umap.UMAP(n_components=3, n_neighbors=30, min_dist=0.0001, metric='cosine', low_memory=True)  # metric='cosine'
+        reducer = umap.UMAP(n_components=3, n_neighbors=30, min_dist=0.001, metric='cosine', low_memory=True)  # metric='cosine'
         embedding = reducer.fit_transform(all_actual_ratings)
         print("Running clustering")
-        clusterer = KMeans(n_clusters=75)
+        clusterer = KMeans(n_clusters=5)
         clusterer.fit(embedding)
         labels = clusterer.labels_
-        np.savetxt("labels.gz", labels)
+        np.savetxt("temp/labels.gz", labels)
 
     if Vt.shape[1] < 10000:
         print("[WARNING] Using 100K SMALL dataset !")
@@ -386,15 +345,21 @@ if __name__ == '__main__':
     sigma_t = torch.tensor(sigma, dtype=torch_precision, device=device)
     Vt_t = torch.tensor(Vt, dtype=torch_precision, device=device)
 
-    #experiment(U, sigma, Vt, user_means, labels, all_actual_ratings)
-
+    experiment(U, sigma, Vt, user_means, labels, all_actual_ratings)
+"""
     import random
     from models import get_OOS_pred_single, OOS_pred_smart
 
-    to_test = random.sample(all_actual_ratings.todok().keys(), 100)
+    to_test = random.sample(all_actual_ratings.todok().keys(), 10)
     mae = []
     for u, i in to_test:
         mae.append(abs(OOS_pred_smart(torch.tensor(all_actual_ratings[u].toarray(), dtype=torch_precision, device=device), sigma_t, Vt_t, U[u])[i].cpu() - all_actual_ratings[u,i]))
     print("mae", np.mean(mae), np.std(mae))
 
+    std = np.std(all_actual_ratings.toarray(), axis=0)
+    print(std.shape)
+    sns.distplot(std)
+    plt.show()
+    print(np.std(all_actual_ratings.toarray()))
+"""
 

@@ -124,7 +124,6 @@ def get_OOS_pred_inner(user, s, v, films_nb, epochs=20):
 
 # Quick Out of sample prediction for matrix factorization, we try to get the user's vector in the latent space
 # that minimizes the error reconstructing it's ratings
-# TODO -> rewrite for several users and do more test
 def get_OOS_pred(user, s, v, films_nb, epochs=20):
     # print("  --- --- ---")
     umean = user.sum(axis=1) / (user != 0.).sum(axis=1)
@@ -146,38 +145,10 @@ def get_OOS_pred(user, s, v, films_nb, epochs=20):
     return ((unew @ s @ v + umean.expand(films_nb, user.size()[0]).transpose(0, 1)) * (user == 0.) + user).detach()
 
 
-def get_OOS_pred_single(user, s, v, epochs=50):
-    umean = user.sum() / (user != 0.).sum()
-    umask = user != 0.
-
-    unew = nn.Parameter(torch.zeros(s.size()[0], device=user.device, dtype=user.dtype, requires_grad=True))
-    opt = optim.Adagrad([unew])
-
-    for epoch in range(epochs):
-        pred = unew @ s @ v + umean
-        loss = torch.sum(torch.pow(((user - pred) * umask), 2)) / torch.sum(umask)
-        loss.backward()
-        opt.step()
-        opt.zero_grad()
-
-    return (unew @ s @ v + umean).detach()
 
 
-def OOS_pred_smart(user, s, v, init_vec, epochs=50):
-    umean = user.sum() / (user != 0.).sum()
-    umask = user != 0.
 
-    unew = nn.Parameter(torch.tensor(init_vec, device=user.device, dtype=user.dtype, requires_grad=True))
-    opt = optim.Adagrad([unew], 1)
 
-    for epoch in range(epochs):
-        pred = unew @ s @ v + umean
-        loss = ( torch.sum(torch.pow(((user - pred) * umask), 2)) / torch.sum(umask) )
-        loss.backward()
-        opt.step()
-        opt.zero_grad()
-
-    return torch.clamp((unew @ s @ v + umean).detach(), 0., 5.)
 
 
 if __name__ == '__main__':
