@@ -441,3 +441,20 @@ if __name__ == '__main__':
 
     exp_check_UMAP(10, sigma, Vt, all_actual_ratings, None, train_set_size=50, n_dim_UMAP=[3],
                        min_dist_UMAP=[0.01], n_neighbors_UMAP=[30], pert_ratio=0, k_neighbors=[5,10,15])
+
+    """
+        import random
+        from models import get_OOS_pred_single, OOS_pred_smart
+
+        to_test = random.sample(all_actual_ratings.todok().keys(), 10)
+        mae = []
+        for u, i in to_test:
+            mae.append(abs(OOS_pred_smart(torch.tensor(all_actual_ratings[u].toarray(), dtype=torch_precision, device=device), sigma_t, Vt_t, U[u])[i].cpu() - all_actual_ratings[u,i]))
+        print("mae", np.mean(mae), np.std(mae))
+
+        std = np.std(all_actual_ratings.toarray(), axis=0)
+        print(std.shape)
+        sns.distplot(std)
+        plt.show()
+        print(np.std(all_actual_ratings.toarray()))
+    """
