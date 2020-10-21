@@ -147,7 +147,8 @@ def explain(user_id:int, item_id:int, n_coeff:int, sigma, Vt, user_means, all_us
     else:
         raise NotImplementedError("No mode " + mode + " exists !")
 
-
+    print("Local prediction : ",pred)
+    print("Black-box prediction :", y_predictor_slice[0])
     return coef, abs(pred - y_predictor_slice)[0]
 
 
@@ -296,6 +297,33 @@ def exp_check_UMAP(n_coeff, sigma, Vt, all_user_ratings, cluster_labels, train_s
     df.to_csv('res/clustering_result_parameters_search_v2.csv')
 
 
+def experiment_test_top_recommendation(U, sigma, Vt, user_means, labels, all_actual_ratings, training_set_sizes=[100], pratio=[0.1, 0.9],
+               k_neighbors=[5, 10, 15]):
+    """
+    Run the first experiment that consists in choosing randomly users and items and each time providing the robustness
+    of explanation and its complexity in terms of number of non-zero features
+    Parameters of the experiment are:
+    :param training_set_sizes: different training set sizes to learn surrogate models
+    :param pratio: different perturbation ratio in training set, modulate # of perturbed points vs # of cluster points
+    :param k_neighbors: different number of neighbors to compute robustness
+    :param n_dim_UMAP: size of projected space for UMAP
+    :return:
+    """
+
+    n_coeff = 10
+    train_set_size = 1000
+    pert_ratio = 1
+
+    toBeExplained = [(int(x[0]), int(x[1]),x[2]) for x in
+                     pd.read_csv('ml-latest-small/ratings.csv', sep=",").values.tolist()[:1000]]
+    for couple_uid_iid in toBeExplained:
+        base_exp, mae = explain(couple_uid_iid[0], couple_uid_iid[1], n_coeff, sigma, Vt, user_means, all_actual_ratings, labels, train_set_size, pert_ratio)
+        print("Mae = ", mae)
+        print("True rating = ", couple_uid_iid[2])
+        print("--------------------------")
+
+
+
 def experiment(U, sigma, Vt, user_means, labels, all_actual_ratings, training_set_sizes=[100], pratio=[0.1, 0.9], k_neighbors=[5,10,15]):
     """
     Run the first experiment that consists in choosing randomly users and items and each time providing the robustness
@@ -357,7 +385,7 @@ if __name__ == '__main__':
     all_user_predicted_ratings = None
     OUTFILE = "res/edbt/exp_edbt_"+datetime.datetime.now().strftime("%j_%H_%M")+".csv"
     TEMP = "temp/"# Fodler for precomputed black box data
-    SIZE = "big"#Size of dataset small/big 100k or 20M
+    SIZE = "small"#Size of dataset small/big 100k or 20M
 
     print('--- Configuring Torch')
     Config.set_device_gpu()
@@ -386,13 +414,19 @@ if __name__ == '__main__':
     else:
         print('--- COMPUTE MODE ---')
         print("  De-Mean")
-        user_means = all_actual_ratings.mean(axis=1)
-        all_actual_ratings_demean = all_actual_ratings.todok(copy=True)
-        for line, col in tqdm(all_actual_ratings_demean.keys()):
-            all_actual_ratings_demean[(line, col)] -= user_means[line]
+        user_means = [None] * all_actual_ratings.shape[0]
+        all_actual_ratings_demean = scipy.sparse.dok_matrix(all_actual_ratings.shape)
+        for line, col in tqdm(all_actual_ratings.todok().keys()):
+            if user_means[line] is None:
+                user = all_actual_ratings[line].toarray()
+                user[user == 0.] = np.nan
+                user_means[line] = np.nanmean(user)
+            all_actual_ratings_demean[line, col] = all_actual_ratings[line, col] - user_means[line]
+        user_means = np.array(user_means)
+        user_means = user_means.reshape(all_actual_ratings.shape[0],1)
 
         print("  Running SVD")
-        U, sigma, Vt = svds(all_actual_ratings_demean.tocsr(), k=20)
+        U, sigma, Vt = svds(all_actual_ratings_demean.tocsr(), k=50,solver='lobpcg',which='LM', maxiter=1000)
         sigma = np.diag(sigma)
 
         # saving matrices
@@ -421,7 +455,7 @@ if __name__ == '__main__':
 
     global_variance = stds(all_actual_ratings, axis=0)
 
-    experiment(U, sigma, Vt, user_means, labels, all_actual_ratings)
+    experiment_test_top_recommendation(U, sigma, Vt, user_means, labels, all_actual_ratings)
     #exp_check_UMAP(10, sigma, Vt, all_actual_ratings, None, train_set_size=50, n_dim_UMAP=[3],
     #                   min_dist_UMAP=[0.01], n_neighbors_UMAP=[30], pert_ratio=0., k_neighbors=[5, 10, 15])
 
