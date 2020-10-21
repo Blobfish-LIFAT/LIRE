@@ -1,3 +1,4 @@
 *.gz
 exp_*\.csv
 test.py
+temp/iid_map.p

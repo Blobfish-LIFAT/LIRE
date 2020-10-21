@@ -72,7 +72,6 @@ def load_data(k=20):
     return U, sigma, Vt, movies_df, films_nb, iid_map, users_mean
 
 
-
 def read_sparse(rfile):
     indptr = [0]
     indices = []
@@ -98,6 +97,7 @@ def read_sparse(rfile):
             data.append(float(l[2]))
         indptr.append(len(indices)) # one last time
     return csr_matrix((data, indices, indptr), dtype=float), vocabulary
+
 
 def plot_dendrogram(model, **kwargs):
     # Create linkage matrix and then plot the dendrogram

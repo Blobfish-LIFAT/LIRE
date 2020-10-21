@@ -8,7 +8,7 @@ from numpy import float
 import pandas as pd
 import re
 
-df = pd.read_csv('clustering_result_parameters_search_v2.csv',header=0)
+df = pd.read_csv('res/clustering_result_parameters_search_v2.csv',header=0)
 df = df.drop(df.columns[0],axis=1)
 #df = df.drop(df.columns[-1],axis=1)
 
@@ -18,7 +18,7 @@ clustering_algorithms = ['kmeans','hdbscan']
 
 
 columns = ['clustering_algorithm','n_cluster', 'robustness@5', 'robustness@10', 'robustness@15','mae', 'user_id', 'item_id','silhoutte_score_by_cluster','silhouette_score_all']
-columns_2 = ['clustering_algorithm','n_cluster','mean_mae','std_mae','mean_robustness','std_robustness','silhouette_score','silhouette_score_by_cluster']
+columns_2 = ['clustering_algorithm','n_cluster','mean_mae','std_mae','mean_robustness_5','std_robustness_5','mean_robustness_10','std_robustness_10','mean_robustness_15','std_robustness_15','silhouette_score','silhouette_score_by_cluster']
 
 result = []
 
@@ -41,10 +41,8 @@ for hyperparameter in hyperparameters:
         rob_5 = sub_space_df['robustness@5'].values
         rob_10 = sub_space_df['robustness@10'].values
         rob_15 = sub_space_df['robustness@15'].values
-        rob_all_mean = mean(concatenate((rob_5, rob_10,rob_15), axis=None))
-        rob_all_std = std(concatenate((rob_5, rob_10,rob_15), axis=None))
-        l = [clustering_algorithm,hyperparameter,round(mean_mae,3),round(std_mae,3),round(rob_all_mean,3),round(rob_all_std,3),round(silhouette_score,3),silhouette_by_cluster]
+        l = [clustering_algorithm,hyperparameter,round(mean_mae,3),round(std_mae,3), round(mean(rob_5), 3),round(std(rob_5), 3),round(mean(rob_10), 3),round(std(rob_10), 3),round(mean(rob_15), 3),round(std(rob_15), 3), round(silhouette_score,3),silhouette_by_cluster]
         result.append(l)
 
 df_result = pd.DataFrame(result,columns=columns_2)
-df_result.to_csv('result_mae_rob_silh_clustering.csv')
+df_result.to_csv('res/result_mae_rob_silh_clustering.csv')

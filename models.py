@@ -124,7 +124,6 @@ def get_OOS_pred_inner(user, s, v, films_nb, epochs=20):
 
 # Quick Out of sample prediction for matrix factorization, we try to get the user's vector in the latent space
 # that minimizes the error reconstructing it's ratings
-# TODO -> rewrite for several users and do more test
 def get_OOS_pred(user, s, v, films_nb, epochs=20):
     # print("  --- --- ---")
     umean = user.sum(axis=1) / (user != 0.).sum(axis=1)
@@ -146,9 +145,15 @@ def get_OOS_pred(user, s, v, films_nb, epochs=20):
     return ((unew @ s @ v + umean.expand(films_nb, user.size()[0]).transpose(0, 1)) * (user == 0.) + user).detach()
 
 
+
+
+
+
+
+
 if __name__ == '__main__':
-    from utility import svd_black_box
-    U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = svd_black_box()
+    from utility import load_data
+    U, sigma, Vt, all_actual_ratings, all_user_predicted_ratings, movies_df, ratings_df, films_nb = load_data()
     print("films", films_nb)
 
     from scipy.optimize import least_squares
@@ -165,7 +170,7 @@ if __name__ == '__main__':
                 return (perturbation - pred) * umask
             return pred_fn
 
-        res = least_squares(prepare(test), np.ones(20))
+        res = least_squares(prepare(test), np.ones(20), loss="soft_l1")
         #print(res)
         #print(U[50])
         moy = test.sum() / (test != 0.).sum()
