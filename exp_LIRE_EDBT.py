@@ -131,7 +131,7 @@ def explain(user_id:int, item_id:int, n_coeff:int, sigma, Vt, user_means, all_us
         models_ = []
         errors_ = []
         # A few runs to avoid bad starts
-        for _ in range(5):
+        for _ in range(1):
             model = LinearRecommender(X_train.shape[1])
             local_loss = LocalLoss(make_tensor(all_user_ratings[user_id]), sigma=5., alpha=0.001)
             train(model, make_tensor(X_train), make_tensor(y_train), local_loss, 100, verbose=False)
@@ -141,6 +141,7 @@ def explain(user_id:int, item_id:int, n_coeff:int, sigma, Vt, user_means, all_us
             models_.append(model)
             if abs(pred - y_predictor_slice)[0] < 0.1:  # Good enough
                 break
+        #print("test", np.min(errors_))
         best = models_[np.argmin(errors_)]
         coef = best.omega.detach().cpu().numpy()
         pred = best(make_tensor(X_user_id)).item()
@@ -385,7 +386,7 @@ if __name__ == '__main__':
     all_user_predicted_ratings = None
     OUTFILE = "res/edbt/exp_edbt_"+datetime.datetime.now().strftime("%j_%H_%M")+".csv"
     TEMP = "temp/"# Fodler for precomputed black box data
-    SIZE = "small"#Size of dataset small/big 100k or 20M
+    SIZE = "big"#Size of dataset small/big 100k or 20M
 
     print('--- Configuring Torch')
     Config.set_device_gpu()
